@@ -101,6 +101,38 @@ public enum MusicAppScripts {
         end try
         return {stateText, positionValue, shuffle enabled, (song repeat as text), sound volume, trackRow}
         """)
+    /// Artwork is fetched separately so bulk library reads remain fast.
+    public static func artwork(id: String, playlist: Bool = false, sourcePlaylistID: String? = nil) throws -> String {
+        let id = try identifier(id)
+        // Cloud playlist tracks need not be members of the main library.
+        let source = try sourcePlaylistID.map { "(first playlist whose persistent ID is \(try identifier($0)))" }
+            ?? "library playlist 1"
+        let target = playlist
+            ? "first playlist whose persistent ID is \(id)"
+            : "first track of \(source) whose persistent ID is \(id)"
+        let fallback = playlist ? """
+            try
+                set t to first track of (first playlist whose persistent ID is \(id))
+                if (count of artworks of t) > 0 then return raw data of artwork 1 of t
+            end try
+            """ : """
+            try
+                set t to current track
+                if persistent ID of t is \(id) then
+                    if (count of artworks of t) > 0 then return raw data of artwork 1 of t
+                end if
+            end try
+            """
+        return wrap("""
+            try
+                set t to \(target)
+                if (count of artworks of t) > 0 then return raw data of artwork 1 of t
+            end try
+            \(fallback)
+            return missing value
+            """)
+    }
+
     public static func seek(_ seconds: Double) -> String {
         wrap("set player position to \(seconds.isFinite ? max(0, seconds) : 0)")
     }

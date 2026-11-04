@@ -9,6 +9,9 @@ final class MusicAppScriptTests: XCTestCase {
     func testAllAutomationScriptsCompileAgainstInstalledMusicDictionary() throws {
         let sources = try [MusicAppScripts.handshake, MusicAppScripts.playlists, MusicAppScripts.snapshot, MusicAppScripts.favorites,
             MusicAppScripts.tracks(playlistID: "FEDCBA9876543210"),
+            MusicAppScripts.artwork(id: song.id),
+            MusicAppScripts.artwork(id: song.id, sourcePlaylistID: song.sourcePlaylistID),
+            MusicAppScripts.artwork(id: "FEDCBA9876543210", playlist: true),
             MusicAppScripts.search("Artist \"quoted\" \\ path\nsecond line"),
             MusicAppScripts.play(song), MusicAppScripts.favorite(song, value: true),
             MusicAppScripts.add([song], playlistID: "FEDCBA9876543210"),
@@ -37,6 +40,14 @@ final class MusicAppScriptTests: XCTestCase {
         }
         XCTAssertNoThrow(try MusicAppScripts.identifier("0123456789abcdef"))
     }
+    func testArtworkResolvesCloudTracksWithinTheirSourcePlaylist() throws {
+        let script = try MusicAppScripts.artwork(id: song.id, sourcePlaylistID: song.sourcePlaylistID)
+        XCTAssertTrue(script.contains("first track of (first playlist whose persistent ID is \"FEDCBA9876543210\") whose persistent ID is \"0123456789ABCDEF\""))
+        XCTAssertFalse(script.contains("library playlist 1"))
+        XCTAssertTrue(try MusicAppScripts.artwork(id: song.id).contains("library playlist 1"))
+        XCTAssertThrowsError(try MusicAppScripts.artwork(id: song.id, sourcePlaylistID: "invalid"))
+    }
+
     func testNumericCommandsClampAndRejectNonFiniteValues() {
         XCTAssertEqual(MusicAppScripts.volume(300), MusicAppScripts.volume(100))
         XCTAssertEqual(MusicAppScripts.volume(-10), MusicAppScripts.volume(0))

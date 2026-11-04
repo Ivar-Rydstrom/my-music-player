@@ -254,10 +254,12 @@ final class AppModel: ObservableObject {
         } catch { if token == session { self.error = error.localizedDescription } }
     }
     private func mergeFavoriteStates(_ tracks: [LibraryTrack]) {
+        var updated = favorites
         for track in tracks {
             guard let favorite = track.isFavorite else { continue }
-            if favorite { favorites.insert(track.id) }
-            else { favorites.remove(track.id) }
+            if favorite { updated.insert(track.id) }
+            else { updated.remove(track.id) }
         }
+        if updated != favorites { favorites = updated }
     }
 }
