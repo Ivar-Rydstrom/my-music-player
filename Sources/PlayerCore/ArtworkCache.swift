@@ -7,12 +7,14 @@ import UniformTypeIdentifiers
 public struct ArtworkCache {
     private let directory: URL
     private let lifetime: TimeInterval
+    private let capacity: Int
     private var writes = 0
 
     public init(directory: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("StillPlayer/Artwork-v1"), lifetime: TimeInterval = 7 * 24 * 60 * 60) {
+        .appendingPathComponent("StillPlayer/Artwork-v1"), lifetime: TimeInterval = 7 * 24 * 60 * 60, capacity: Int = 512) {
         self.directory = directory
         self.lifetime = lifetime
+        self.capacity = max(1, capacity)
     }
 
     public func read(_ url: URL, now: Date = Date()) -> Data? {
@@ -23,6 +25,11 @@ public struct ArtworkCache {
               let source = CGImageSourceCreateWithData(data as CFData, nil),
               CGImageSourceGetCount(source) > 0,
               CGImageSourceGetStatus(source) == .statusComplete else { return nil }
+        // Recency and expiry are separate: reading must not renew the artwork's age.
+        var accessedFile = file
+        var values = URLResourceValues()
+        values.contentAccessDate = now
+        try? accessedFile.setResourceValues(values)
         return data
     }
 
@@ -54,10 +61,13 @@ public struct ArtworkCache {
 
     private func prune() {
         let files = (try? FileManager.default.contentsOfDirectory(at: directory,
-            includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
-        let dated = files.map { ($0, (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
-            .sorted { $0.1 > $1.1 }
-        for (index, entry) in dated.enumerated() where index >= 512 || Date().timeIntervalSince(entry.1) >= lifetime {
+            includingPropertiesForKeys: [.contentModificationDateKey, .contentAccessDateKey])) ?? []
+        let dated = files.map { file -> (URL, Date, Date) in
+            let values = try? file.resourceValues(forKeys: [.contentModificationDateKey, .contentAccessDateKey])
+            let modified = values?.contentModificationDate ?? .distantPast
+            return (file, modified, values?.contentAccessDate ?? modified)
+        }.sorted { $0.2 > $1.2 }
+        for (index, entry) in dated.enumerated() where index >= capacity || Date().timeIntervalSince(entry.1) >= lifetime {
             try? FileManager.default.removeItem(at: entry.0)
         }
     }

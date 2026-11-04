@@ -133,7 +133,8 @@ actor MusicArtworkLoader {
     static let shared = MusicArtworkLoader()
     private let bridge = MusicAppBridge()
     private var disk = ArtworkCache()
-    private var cache: [URL: (date: Date, data: Data)] = [:]
+    private var cache = ArtworkMemoryCache()
+    private var rowThumbnails = ArtworkMemoryCache()
     private var misses: [URL: Date] = [:]
     private var waiting: [URL: [CheckedContinuation<Data?, Never>]] = [:]
     private var queue: [(url: URL, priority: Int)] = []
@@ -143,7 +144,7 @@ actor MusicArtworkLoader {
     private var backgroundGeneration = UUID()
 
     func data(for url: URL, priority: Int = 0, retryMissing: Bool = false) async -> Data? {
-        if let entry = cache[url], Date().timeIntervalSince(entry.date) < 7 * 24 * 60 * 60 { return entry.data }
+        if let data = cache.read(url) { return data }
         if let data = disk.read(url) {
             remember(data, for: url)
             return data
@@ -188,7 +189,7 @@ actor MusicArtworkLoader {
                 var failed: [URL] = []
                 while !Task.isCancelled, let url = backgroundPlan.next() {
                     if await data(for: url, priority: 2) == nil { failed.append(url) }
-                    try await Task.sleep(for: .milliseconds(75))
+                    await Task.yield()
                 }
                 // Finish the initial pass before retrying temporary misses offscreen.
                 for delay in [1, 3, 10, 30] where !failed.isEmpty {
@@ -198,7 +199,7 @@ actor MusicArtworkLoader {
                     for url in retry {
                         try Task.checkCancellation()
                         if await data(for: url, priority: 2, retryMissing: true) == nil { failed.append(url) }
-                        try await Task.sleep(for: .milliseconds(75))
+                        await Task.yield()
                     }
                 }
             } catch { /* A new playlist or library superseded this background pass. */ }
@@ -206,6 +207,7 @@ actor MusicArtworkLoader {
     }
 
     func thumbnail(for url: URL, pixels: Int) async -> Data? {
+        if pixels <= 96, let thumbnail = rowThumbnails.read(url) { return thumbnail }
         let priority = url.host == "track" || pixels > 96 ? 0 : 1
         // Negative caching suppresses speculative prefetch, not recovery of a visible row.
         // Keep retrying this same URL; SwiftUI's .task(id:) does not restart after a nil result.
@@ -213,7 +215,10 @@ actor MusicArtworkLoader {
             await self.data(for: url, priority: priority, retryMissing: true)
         }
         guard let data = loaded else { return nil }
-        return pixels <= 96 ? ArtworkCache.thumbnail(data, pixels: 96) : data
+        guard pixels <= 96 else { return data }
+        guard let thumbnail = ArtworkCache.thumbnail(data, pixels: 96) else { return nil }
+        rowThumbnails.write(thumbnail, for: url)
+        return thumbnail
     }
 
     private func drain() async {
@@ -242,7 +247,6 @@ actor MusicArtworkLoader {
     }
 
     private func remember(_ data: Data, for url: URL) {
-        if cache.count >= 256 { cache.removeAll(keepingCapacity: true) }
-        cache[url] = (Date(), data)
+        cache.write(data, for: url)
     }
 }

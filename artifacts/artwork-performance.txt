@@ -16,3 +16,12 @@ With the restored 136-track playlist left open and no scrolling, all 136 track c
 reached the disk cache. All 51 sidebar covers were also present. Temporary offscreen
 misses recovered through background retry passes. This confirms cache coverage,
 not a cold-network loading-time measurement.
+
+Large-playlist follow-up:
+36 Swift tests passed; native Xcode debug build succeeded.
+The bulk metadata request for the reported 275-track playlist completed in 0.221 s
+in a local Music read. This does not include rendering or a cold network fetch.
+All 275 track covers reached disk in the live app. No cold-start speedup is claimed.
+Removed fixed per-image background delays, replaced full-cache clears with LRU
+eviction, cached row thumbnails, and suppressed unchanged playback/favorite
+publications. Disk reads now update access recency independently of expiry.

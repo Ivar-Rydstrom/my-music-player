@@ -33,6 +33,20 @@ final class ArtworkCacheTests: XCTestCase {
         XCTAssertNil(relaunched.read(URL(string: "music-artwork://track/FEDCBA9876543210")!))
     }
 
+    func testDiskPruningPreservesRecentlyReadCoversWithoutRenewingExpiry() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var cache = ArtworkCache(directory: directory, lifetime: 60, capacity: 3)
+        let data = try XCTUnwrap(ArtworkCache.thumbnail(sourceImage(), pixels: 96))
+        let urls = (0..<33).map { URL(string: "music-artwork://track/\($0)")! }
+        for url in urls.prefix(32) { cache.write(data, for: url) }
+        XCTAssertEqual(cache.read(urls[0], now: Date().addingTimeInterval(10)), data)
+        cache.write(data, for: urls[32]) // Triggers periodic pruning.
+        XCTAssertEqual(cache.read(urls[0]), data)
+        XCTAssertNil(cache.read(urls[1]))
+        XCTAssertNil(cache.read(urls[0], now: Date().addingTimeInterval(120)))
+    }
+
     func testCorruptDiskEntryIsAMiss() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
