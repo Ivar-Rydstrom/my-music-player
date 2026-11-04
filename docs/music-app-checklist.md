@@ -18,6 +18,7 @@ The first connection reads playlists and current playback, leaving playback and 
 
 These checks change playback or the library, so perform them deliberately in the UI.
 
+- Press Shuffle playlist on a cloud playlist, skip several songs, and verify each belongs to that playlist. Compare the player cover with its table row, including after switching the browsed playlist.
 - Double-click a playlist song. Confirm that exact song plays and Music supplies subsequent songs. Table sorting/filtering does not change the source playlist's order.
 - Test pause/resume, seek, next, previous, shuffle, repeat, and volume. Seek and volume are sent on slider release to avoid flooding Music with Apple events.
 - Favorite and unfavorite a song. Confirm in Music and on iPhone after sync.
@@ -31,7 +32,7 @@ These checks change playback or the library, so perform them deliberately in the
 - Actual Up Next cannot be read or edited through Music's scripting dictionary. Still offers an Open Music button instead of a simulated queue in this mode.
 - Catalog search stays in Music. Library search uses scriptable library tracks.
 - A song must be addressable in Music's scripting library or source playlist. Some catalog-only streams, stations, or cloud items may not be addressable.
-- Placeholder artwork is used. Artwork extraction and caching are deferred.
+- Tracks without available artwork use generated placeholders.
 - Playlist operations are not transactional. If a multi-song addition fails partway through, some tracks may already have been added. Check Music before retrying.
 - Local ad hoc builds may need Automation permission again after rebuilding. Signed distribution and notarization are separate future work.
 

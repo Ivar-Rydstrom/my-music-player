@@ -13,7 +13,7 @@ final class MusicAppScriptTests: XCTestCase {
             MusicAppScripts.artwork(id: song.id, sourcePlaylistID: song.sourcePlaylistID),
             MusicAppScripts.artwork(id: "FEDCBA9876543210", playlist: true),
             MusicAppScripts.search("Artist \"quoted\" \\ path\nsecond line"),
-            MusicAppScripts.play(song), MusicAppScripts.favorite(song, value: true),
+            MusicAppScripts.playPlaylist(id: "FEDCBA9876543210"), MusicAppScripts.play(song), MusicAppScripts.favorite(song, value: true),
             MusicAppScripts.add([song], playlistID: "FEDCBA9876543210"),
             MusicAppScripts.seek(10), MusicAppScripts.volume(45),
             MusicAppScripts.shuffle(true), MusicAppScripts.repeatAll(false)]
@@ -46,6 +46,13 @@ final class MusicAppScriptTests: XCTestCase {
         XCTAssertFalse(script.contains("library playlist 1"))
         XCTAssertTrue(try MusicAppScripts.artwork(id: song.id).contains("library playlist 1"))
         XCTAssertThrowsError(try MusicAppScripts.artwork(id: song.id, sourcePlaylistID: "invalid"))
+    }
+
+    func testPlaylistPlaybackTargetsThePlaylistRatherThanASharedTrack() throws {
+        let script = try MusicAppScripts.playPlaylist(id: "FEDCBA9876543210")
+        XCTAssertTrue(script.contains("play (first playlist whose persistent ID is \"FEDCBA9876543210\")"))
+        XCTAssertFalse(script.contains("track"))
+        XCTAssertThrowsError(try MusicAppScripts.playPlaylist(id: "invalid"))
     }
 
     func testNumericCommandsClampAndRejectNonFiniteValues() {

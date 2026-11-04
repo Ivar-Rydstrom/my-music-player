@@ -78,6 +78,19 @@ final class PlaybackController: ObservableObject {
         lastTick = Date(); refresh()
     }
 
+    func playPlaylist(_ playlist: MusicPlaylist?, tracks: [LibraryTrack]) async throws {
+        guard !tracks.isEmpty else { return }
+        if let musicApp, let playlist {
+            // Starting a shared cloud track alone can make Music shuffle the whole library.
+            // Play the playlist object so Music owns the correct playback context.
+            try await musicApp.setShuffle(shuffle)
+            try await musicApp.play(playlist)
+            await pollMusicApp()
+        } else {
+            try await play(tracks)
+        }
+    }
+
     func toggle() async throws {
         if let musicApp { try await musicApp.toggle(); await pollMusicApp() }
         else if nativeLibrary != nil {

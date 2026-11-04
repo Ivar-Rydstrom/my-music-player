@@ -34,10 +34,13 @@ actor MusicAppBridge {
         try decodeColumns(execute(MusicAppScripts.search(query)))
     }
     func snapshot() throws -> MusicAppSnapshot {
-        let result = try execute(MusicAppScripts.snapshot)
-        guard result.numberOfItems == 6 else { throw MusicAutomationError(number: -1, message: "Unexpected player response.") }
+        try Self.decodeSnapshot(execute(MusicAppScripts.snapshot))
+    }
+    static func decodeSnapshot(_ result: NSAppleEventDescriptor) throws -> MusicAppSnapshot {
+        guard result.numberOfItems == 7 else { throw MusicAutomationError(number: -1, message: "Unexpected player response.") }
         let row = result.atIndex(6)
-        let track = row.flatMap { $0.numberOfItems == 7 ? decodeRow($0) : nil }
+        let playlistID = result.atIndex(7)?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        let track = row.flatMap { $0.numberOfItems == 7 ? decodeRow($0, playlistID: playlistID) : nil }
         return MusicAppSnapshot(track: track, isPlaying: result.atIndex(1)?.stringValue == "playing",
             position: result.atIndex(2)?.doubleValue ?? 0, shuffle: result.atIndex(3)?.booleanValue ?? false,
             repeatAll: result.atIndex(4)?.stringValue == "all", volume: result.atIndex(5)?.doubleValue ?? 50)
@@ -83,11 +86,11 @@ actor MusicAppBridge {
                 playCount: columns.atIndex(7)?.atIndex(offset).map { Int($0.int32Value) })
         }
     }
-    private func decodeRow(_ row: NSAppleEventDescriptor) -> LibraryTrack? {
+    private static func decodeRow(_ row: NSAppleEventDescriptor, playlistID: String? = nil) -> LibraryTrack? {
         guard let id = row.atIndex(1)?.stringValue else { return nil }
         return LibraryTrack(id: id, title: row.atIndex(2)?.stringValue ?? "Untitled",
             artist: row.atIndex(3)?.stringValue ?? "", album: row.atIndex(4)?.stringValue ?? "",
-            duration: row.atIndex(5)?.doubleValue ?? 0, artwork: URL(string: "music-artwork://track/\(id)"), resourceType: "music-app-track",
+            duration: row.atIndex(5)?.doubleValue ?? 0, artwork: URL(string: "music-artwork://track/\(id)" + (playlistID.map { "?playlist=\($0)" } ?? "")), resourceType: "music-app-track", sourcePlaylistID: playlistID,
             isFavorite: row.atIndex(6)?.booleanValue, playCount: row.atIndex(7).map { Int($0.int32Value) })
     }
 }
@@ -118,6 +121,7 @@ final class MusicAppLibrary: LibraryServing {
     }
     func snapshot() async throws -> MusicAppSnapshot { try await bridge.snapshot() }
     func play(_ track: LibraryTrack) async throws { try await bridge.run(MusicAppScripts.play(track)) }
+    func play(_ playlist: MusicPlaylist) async throws { try await bridge.run(MusicAppScripts.playPlaylist(id: playlist.id)) }
     func pause() async throws { try await bridge.run(MusicAppScripts.wrap("pause")) }
     func toggle() async throws { try await bridge.run(MusicAppScripts.wrap("playpause")) }
     func next() async throws { try await bridge.run(MusicAppScripts.wrap("next track")) }
