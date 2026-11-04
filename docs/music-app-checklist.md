@@ -43,5 +43,8 @@ The retained MusicKit backend remains available in Account & integration and has
 - Include a cloud playlist containing songs not saved in your main Music library. Those rows must load covers using their source playlist.
 - Scroll through songs, search the library, open favorites, and change playback in Music. Track covers should appear in the table, player, and queue.
 - Playlist artwork is requested directly from Music. If unavailable, the first track's cover is used. Empty playlists and tracks without artwork retain the generated placeholder.
-- Artwork requests run separately from metadata and playback polling. Concurrent requests share a fetch, and up to 256 results are cached in memory for five minutes. MusicKit connections continue to use Apple's artwork URLs.
-- Replace a cover in Music and reopen the playlist after five minutes to check cache expiry.
+- Artwork requests run separately from metadata and playback polling. Visible track rows and playlist headers take priority over sidebar covers and prefetch. The sidebar creates rows lazily; only the first 12 tracks are prefetched.
+- Requests for the same artwork share a fetch. Music supplies original image data, which is downsampled off the UI thread to 320 pixels for storage and 96 pixels for rows. These cover Retina display sizes without loading originals into table cells. MusicKit connections continue to use Apple's artwork URLs.
+- Up to 256 images are retained in memory. The disk cache survives restarts, expires after seven days, and periodically trims to 512 entries. Missing artwork retries on a new request after 30 seconds. Cached covers may remain unchanged until expiry.
+- Quit and reopen Still. Cached rows should appear without another Music artwork request. Change playlists while covers load and confirm playback controls remain responsive.
+- Replace a cover in Music and verify it refreshes after cache expiry.

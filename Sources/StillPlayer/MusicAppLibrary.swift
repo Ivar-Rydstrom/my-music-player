@@ -102,7 +102,12 @@ final class MusicAppLibrary: LibraryServing {
         try await bridge.handshake()
     }
     func playlists() async throws -> [MusicPlaylist] { try await bridge.playlists() }
-    func tracks(in playlist: MusicPlaylist) async throws -> [LibraryTrack] { try await bridge.tracks(in: playlist) }
+    func tracks(in playlist: MusicPlaylist) async throws -> [LibraryTrack] {
+        let tracks = try await bridge.tracks(in: playlist)
+        let urls = tracks.prefix(12).compactMap(\.artwork)
+        Task { await MusicArtworkLoader.shared.prefetch(urls) }
+        return tracks
+    }
     func favorites() async throws -> [LibraryTrack] { try await bridge.favorites() }
     func search(_ term: String, catalog: Bool) async throws -> [LibraryTrack] {
         guard !catalog else { throw LibraryFailure.message("Music automation searches your library. Open Music to search the Apple Music catalog.") }
@@ -127,27 +132,83 @@ final class MusicAppLibrary: LibraryServing {
     func setRepeat(_ enabled: Bool) async throws { try await bridge.run(MusicAppScripts.repeatAll(enabled)) }
 }
 
-/// Serial Apple events stay off the main actor. Cache is bounded and misses expire.
+/// Visible tracks and headers go ahead of sidebar covers and speculative prefetch.
+/// Only one Music artwork request is in flight; metadata and playback use a separate bridge.
 actor MusicArtworkLoader {
     static let shared = MusicArtworkLoader()
     private let bridge = MusicAppBridge()
-    private var cache: [URL: (Date, Data?)] = [:]
-    private var pending: [URL: Task<Data?, Never>] = [:]
+    private var disk = ArtworkCache()
+    private var cache: [URL: (date: Date, data: Data)] = [:]
+    private var misses: [URL: Date] = [:]
+    private var waiting: [URL: [CheckedContinuation<Data?, Never>]] = [:]
+    private var queue: [(url: URL, priority: Int)] = []
+    private var running = false
 
-    func data(for url: URL) async -> Data? {
-        if let entry = cache[url], Date().timeIntervalSince(entry.0) < 300 { return entry.1 }
-        if let task = pending[url] { return await task.value }
-        let playlistID = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-            .queryItems?.first { $0.name == "playlist" }?.value
-        guard let script = try? MusicAppScripts.artwork(id: url.lastPathComponent,
-                                                       playlist: url.host == "playlist",
-                                                       sourcePlaylistID: playlistID) else { return nil }
-        let task = Task { try? await bridge.artworkData(script) }
-        pending[url] = task
-        let data = await task.value
-        pending[url] = nil
+    func data(for url: URL, priority: Int = 0) async -> Data? {
+        if let entry = cache[url], Date().timeIntervalSince(entry.date) < 7 * 24 * 60 * 60 { return entry.data }
+        if let data = disk.read(url) {
+            remember(data, for: url)
+            return data
+        }
+        if let date = misses[url], Date().timeIntervalSince(date) < 30 { return nil }
+        return await withCheckedContinuation { continuation in
+            if waiting[url] != nil {
+                waiting[url]?.append(continuation)
+                if let index = queue.firstIndex(where: { $0.url == url }) {
+                    queue[index].priority = min(priority, queue[index].priority)
+                }
+            } else {
+                waiting[url] = [continuation]
+                queue.append((url, priority))
+            }
+            if !running {
+                running = true
+                Task { await drain() }
+            }
+        }
+    }
+
+    func prefetch(_ urls: [URL]) async {
+        // Bounded lookahead starts with the first screen, without waiting in the metadata path.
+        await withTaskGroup(of: Void.self) { group in
+            for url in urls.prefix(12) {
+                group.addTask { _ = await self.data(for: url, priority: 2) }
+            }
+        }
+    }
+
+    func thumbnail(for url: URL, pixels: Int) async -> Data? {
+        let priority = url.host == "track" || pixels > 96 ? 0 : 1
+        guard let data = await data(for: url, priority: priority) else { return nil }
+        return pixels <= 96 ? ArtworkCache.thumbnail(data, pixels: 96) : data
+    }
+
+    private func drain() async {
+        while !queue.isEmpty {
+            // min preserves insertion order among requests with the same priority.
+            let index = queue.indices.min { queue[$0].priority < queue[$1].priority }!
+            let url = queue.remove(at: index).url
+            let playlistID = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first { $0.name == "playlist" }?.value
+            let script = try? MusicAppScripts.artwork(id: url.lastPathComponent,
+                playlist: url.host == "playlist", sourcePlaylistID: playlistID)
+            let original = if let script { try? await bridge.artworkData(script) } else { nil as Data? }
+            let data = original.flatMap { ArtworkCache.thumbnail($0, pixels: 320) }
+            if let data {
+                remember(data, for: url)
+                disk.write(data, for: url)
+            } else {
+                if misses.count >= 256 { misses.removeAll() }
+                misses[url] = Date()
+            }
+            let continuations = waiting.removeValue(forKey: url) ?? []
+            for continuation in continuations { continuation.resume(returning: data) }
+        }
+        running = false
+    }
+
+    private func remember(_ data: Data, for url: URL) {
         if cache.count >= 256 { cache.removeAll(keepingCapacity: true) }
         cache[url] = (Date(), data)
-        return data
     }
 }

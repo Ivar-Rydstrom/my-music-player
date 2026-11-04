@@ -1,0 +1,11 @@
+Local artwork pipeline check, 2026-11-04
+Seven tracks from the connected Music playlist. Music's own artwork cache was already warm.
+This isolates artwork fetching/downsampling/storage; it is not an end-to-end startup measurement.
+
+Empty app cache: 0.685 seconds including Music reads, 320px downsampling, and disk writes.
+Reopened app cache: 0.019 seconds including disk reads and 96px thumbnails; no Music reads.
+Original image bytes: 2,413,556.
+Stored 320px PNG bytes: 1,086,103.
+
+Validation: 22 Swift tests passed; native Xcode debug build succeeded.
+Live app: verified seven visible song covers, playlist header/sidebar covers, and player/queue covers.

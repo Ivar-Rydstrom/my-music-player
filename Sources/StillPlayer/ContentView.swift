@@ -86,7 +86,7 @@ struct ContentView: View {
             TextField("Filter playlists", text: $sidebarFilter).textFieldStyle(.plain)
                 .font(.caption).padding(.horizontal, 24).padding(.bottom, 12)
             ScrollView {
-                VStack(spacing: 3) {
+                LazyVStack(spacing: 3) {
                     ForEach(model.sortedPlaylists.filter { sidebarFilter.isEmpty || $0.name.localizedStandardContains(sidebarFilter) }) { playlist in
                         sidebarItem(playlist.name, icon: model.pinned.contains(playlist.id) ? "pin.fill" : "music.note.list", id: playlist.id, artwork: playlist.artwork)
                             .contextMenu {
@@ -211,7 +211,7 @@ struct Artwork: View {
         .task(id: url) {
             localImage = nil
             guard let url, url.scheme == "music-artwork" else { return }
-            let data = await MusicArtworkLoader.shared.data(for: url)
+            let data = await MusicArtworkLoader.shared.thumbnail(for: url, pixels: size > 48 ? 320 : 96)
             guard !Task.isCancelled else { return }
             localImage = data.flatMap { NSImage(data: $0) }
         }
