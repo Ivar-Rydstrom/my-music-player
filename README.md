@@ -26,6 +26,7 @@ Sample playback is simulated, with no audio files or streaming. The timer, seek,
 
 - Playlists in the sidebar, with local pinning through the context menu and a playlist-name filter.
 - Song table with sortable columns, multiple selection, filtering, and track context menus.
+- Play and Shuffle playlist start the selected playlist directly in Music, keeping subsequent shuffle selections within that playlist.
 - Double-click a song to play it in Music, retaining its source playlist context. Music controls the subsequent playback order. Filtering or sorting Still's table does not reorder Music's playlist or Up Next. Single-click only selects.
 - Right-click tracks to favorite/unfavorite in Music or add to an editable playlist. Smart, subscription, and special playlists are excluded as addition targets. Additions can affect your real library; use a test playlist first.
 - Search with Command-K. Music.app mode searches your library. Catalog search stays in Music, accessible with the Open Music button. Sample mode uses fixtures; the optional MusicKit mode searches the library or catalog and returns up to 25 songs.
@@ -37,7 +38,7 @@ Sample playback is simulated, with no audio files or streaming. The timer, seek,
 
 Search opens separately, keeping the underlying playlist view intact. Playlist filter text and selections survive navigation during a session. Exact table scroll restoration and persistent column configuration are deferred.
 
-Music.app metadata uses generated placeholder artwork for now. Library playlist reads use bulk Apple events rather than a network API. Playlist names, song metadata, and logs are not uploaded by Still. Music itself handles streaming and cloud sync.
+Music.app artwork is loaded from the source playlist and cached locally. Playback snapshots retain Music's current playlist so the player can use the same covers as the song table. Items without available artwork use generated placeholders. Library playlist reads use bulk Apple events rather than a network API. Playlist names, song metadata, and logs are not uploaded by Still. Music itself handles streaming and cloud sync.
 
 ## Optional independent MusicKit player
 

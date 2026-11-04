@@ -4,6 +4,30 @@ import PlayerCore
 @testable import StillPlayer
 
 final class PlayerPolishTests: XCTestCase {
+    func testNowPlayingArtworkKeepsMusicPlaylistContext() throws {
+        let script = NSAppleScript(source: """
+            return {"playing", 12, true, "off", 50, {"0123456789ABCDEF", "Song", "Artist", "Album", 180, false, 0}, "FEDCBA9876543210"}
+            """)!
+        var error: NSDictionary?
+        let snapshot = try MusicAppBridge.decodeSnapshot(script.executeAndReturnError(&error))
+        XCTAssertNil(error)
+        XCTAssertEqual(snapshot.track?.sourcePlaylistID, "FEDCBA9876543210")
+        XCTAssertEqual(snapshot.track?.artwork?.absoluteString,
+            "music-artwork://track/0123456789ABCDEF?playlist=FEDCBA9876543210")
+        XCTAssertTrue(snapshot.shuffle)
+    }
+
+    func testNowPlayingWithoutAScriptablePlaylistStillDecodes() throws {
+        let script = NSAppleScript(source: """
+            return {"paused", 12, false, "off", 50, {"0123456789ABCDEF", "Song", "Artist", "Album", 180, false, 0}, ""}
+            """)!
+        var error: NSDictionary?
+        let snapshot = try MusicAppBridge.decodeSnapshot(script.executeAndReturnError(&error))
+        XCTAssertNil(error)
+        XCTAssertNil(snapshot.track?.sourcePlaylistID)
+        XCTAssertEqual(snapshot.track?.artwork?.absoluteString, "music-artwork://track/0123456789ABCDEF")
+    }
+
     @MainActor func testPresetAndGeneratedPalettesKeepTextAndControlsReadable() {
         var themes = ThemePreset.all.map(\.theme)
         var custom = ThemePreferences()

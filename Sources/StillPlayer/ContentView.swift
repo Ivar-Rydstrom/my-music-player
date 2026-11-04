@@ -159,13 +159,13 @@ struct ContentView: View {
             }.padding(30).frame(maxWidth: .infinity, alignment: .leading).background(theme.wash)
             HStack(spacing: 12) {
                 Button {
-                    model.perform { try await model.playback.play(model.tracks) }
+                    model.perform { try await model.playback.playPlaylist(model.playlist, tracks: model.tracks) }
                 } label: { Label("Play", systemImage: "play.fill").padding(.horizontal, 13).padding(.vertical, 4) }
                     .buttonStyle(.borderedProminent).foregroundStyle(theme.buttonInk).disabled(model.tracks.isEmpty)
                 Button {
                     model.perform {
                         model.playback.shuffle = true
-                        try await model.playback.play(model.tracks)
+                        try await model.playback.playPlaylist(model.playlist, tracks: model.tracks)
                     }
                 } label: { Image(systemName: "shuffle") }.buttonStyle(.borderless).help("Shuffle playlist").disabled(model.tracks.isEmpty)
                 if model.selectedID == "recent", !model.recentTracks.isEmpty {

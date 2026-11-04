@@ -73,6 +73,9 @@ public enum MusicAppScripts {
         }
         return wrap("play \(ref)")
     }
+    public static func playPlaylist(id: String) throws -> String {
+        wrap("play (first playlist whose persistent ID is \(try identifier(id)))")
+    }
     public static func favorite(_ track: LibraryTrack, value: Bool) throws -> String {
         wrap("""
             if exists current track then
@@ -99,7 +102,11 @@ public enum MusicAppScripts {
         on error number -1728
             set trackRow to {}
         end try
-        return {stateText, positionValue, shuffle enabled, (song repeat as text), sound volume, trackRow}
+        set playlistID to ""
+        try
+            set playlistID to persistent ID of current playlist
+        end try
+        return {stateText, positionValue, shuffle enabled, (song repeat as text), sound volume, trackRow, playlistID}
         """)
     /// Artwork is fetched separately so bulk library reads remain fast.
     public static func artwork(id: String, playlist: Bool = false, sourcePlaylistID: String? = nil) throws -> String {
