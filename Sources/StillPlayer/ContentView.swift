@@ -88,7 +88,7 @@ struct ContentView: View {
             ScrollView {
                 VStack(spacing: 3) {
                     ForEach(model.sortedPlaylists.filter { sidebarFilter.isEmpty || $0.name.localizedStandardContains(sidebarFilter) }) { playlist in
-                        sidebarItem(playlist.name, icon: model.pinned.contains(playlist.id) ? "pin.fill" : "music.note.list", id: playlist.id)
+                        sidebarItem(playlist.name, icon: model.pinned.contains(playlist.id) ? "pin.fill" : "music.note.list", id: playlist.id, artwork: playlist.artwork)
                             .contextMenu {
                                 Button(model.pinned.contains(playlist.id) ? "Unpin playlist" : "Pin playlist") { model.pin(playlist) }
                             }
@@ -110,10 +110,14 @@ struct ContentView: View {
         }.background(Palette.surface.opacity(0.6))
     }
 
-    private func sidebarItem(_ title: String, icon: String, id: String) -> some View {
+    private func sidebarItem(_ title: String, icon: String, id: String, artwork: URL? = nil) -> some View {
         Button { Task { await model.select(id) } } label: {
             HStack(spacing: 11) {
-                Image(systemName: icon).frame(width: 16).foregroundStyle(model.selectedID == id ? Palette.accent : Palette.muted)
+                if let artwork {
+                    Artwork(url: artwork, seed: title, size: 28)
+                } else {
+                    Image(systemName: icon).frame(width: 16).foregroundStyle(model.selectedID == id ? Palette.accent : Palette.muted)
+                }
                 Text(title).lineLimit(1).font(.system(size: 12))
                 Spacer(minLength: 0)
             }
@@ -183,6 +187,7 @@ struct Artwork: View {
     var url: URL?
     var seed: String
     var size: CGFloat
+    @State private var localImage: NSImage?
     private var hue: Double { Double(seed.utf8.reduce(0) { $0 + Int($1) } % 100) / 100 }
     var body: some View {
         ZStack {
@@ -195,10 +200,21 @@ struct Artwork: View {
                     }
                 }.position(x: proxy.size.width * 0.75, y: proxy.size.height * 0.7)
             }.clipped()
-            if let url {
+            if url?.scheme == "music-artwork" {
+                if let localImage {
+                    Image(nsImage: localImage).resizable().scaledToFill()
+                }
+            } else if let url {
                 AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
             }
         }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: 8)).accessibilityHidden(true)
+        .task(id: url) {
+            localImage = nil
+            guard let url, url.scheme == "music-artwork" else { return }
+            let data = await MusicArtworkLoader.shared.data(for: url)
+            guard !Task.isCancelled else { return }
+            localImage = data.flatMap { NSImage(data: $0) }
+        }
     }
 }
 

@@ -9,6 +9,8 @@ final class MusicAppScriptTests: XCTestCase {
     func testAllAutomationScriptsCompileAgainstInstalledMusicDictionary() throws {
         let sources = try [MusicAppScripts.handshake, MusicAppScripts.playlists, MusicAppScripts.snapshot, MusicAppScripts.favorites,
             MusicAppScripts.tracks(playlistID: "FEDCBA9876543210"),
+            MusicAppScripts.artwork(id: song.id),
+            MusicAppScripts.artwork(id: "FEDCBA9876543210", playlist: true),
             MusicAppScripts.search("Artist \"quoted\" \\ path\nsecond line"),
             MusicAppScripts.play(song), MusicAppScripts.favorite(song, value: true),
             MusicAppScripts.add([song], playlistID: "FEDCBA9876543210"),

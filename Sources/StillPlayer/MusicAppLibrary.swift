@@ -21,7 +21,7 @@ actor MusicAppBridge {
             guard let row = result.atIndex(index + 1), let id = row.atIndex(1)?.stringValue,
                   let name = row.atIndex(2)?.stringValue else { return nil }
             let editable = row.atIndex(3)?.booleanValue ?? false
-            return MusicPlaylist(id: id, name: name, subtitle: editable ? "Your Music library" : "Your Music library · read-only playlist", canAddTracks: editable)
+            return MusicPlaylist(id: id, name: name, subtitle: editable ? "Your Music library" : "Your Music library · read-only playlist", artwork: URL(string: "music-artwork://playlist/\(id)"), canAddTracks: editable)
         }
     }
     func tracks(in playlist: MusicPlaylist) throws -> [LibraryTrack] {
@@ -41,6 +41,12 @@ actor MusicAppBridge {
         return MusicAppSnapshot(track: track, isPlaying: result.atIndex(1)?.stringValue == "playing",
             position: result.atIndex(2)?.doubleValue ?? 0, shuffle: result.atIndex(3)?.booleanValue ?? false,
             repeatAll: result.atIndex(4)?.stringValue == "all", volume: result.atIndex(5)?.doubleValue ?? 50)
+    }
+    func artworkData(_ source: String) throws -> Data? {
+        let result = try execute(source)
+        // Missing value is an enum descriptor, not image data.
+        let data = result.data
+        return data.count > 16 ? data : nil
     }
     func run(_ source: String) throws { _ = try execute(source) }
 
@@ -70,6 +76,7 @@ actor MusicAppBridge {
                 artist: columns.atIndex(3)?.atIndex(offset)?.stringValue ?? "",
                 album: columns.atIndex(4)?.atIndex(offset)?.stringValue ?? "",
                 duration: columns.atIndex(5)?.atIndex(offset)?.doubleValue ?? 0,
+                artwork: URL(string: "music-artwork://track/\(id)"),
                 resourceType: "music-app-track", sourcePlaylistID: playlistID,
                 sourceIndex: playlistID == nil ? nil : offset,
                 isFavorite: columns.atIndex(6)?.atIndex(offset)?.booleanValue,
@@ -80,7 +87,7 @@ actor MusicAppBridge {
         guard let id = row.atIndex(1)?.stringValue else { return nil }
         return LibraryTrack(id: id, title: row.atIndex(2)?.stringValue ?? "Untitled",
             artist: row.atIndex(3)?.stringValue ?? "", album: row.atIndex(4)?.stringValue ?? "",
-            duration: row.atIndex(5)?.doubleValue ?? 0, resourceType: "music-app-track",
+            duration: row.atIndex(5)?.doubleValue ?? 0, artwork: URL(string: "music-artwork://track/\(id)"), resourceType: "music-app-track",
             isFavorite: row.atIndex(6)?.booleanValue, playCount: row.atIndex(7).map { Int($0.int32Value) })
     }
 }
@@ -118,4 +125,26 @@ final class MusicAppLibrary: LibraryServing {
     func setVolume(_ value: Double) async throws { try await bridge.run(MusicAppScripts.volume(value)) }
     func setShuffle(_ enabled: Bool) async throws { try await bridge.run(MusicAppScripts.shuffle(enabled)) }
     func setRepeat(_ enabled: Bool) async throws { try await bridge.run(MusicAppScripts.repeatAll(enabled)) }
+}
+
+/// Serial Apple events stay off the main actor. Cache is bounded and misses expire.
+actor MusicArtworkLoader {
+    static let shared = MusicArtworkLoader()
+    private let bridge = MusicAppBridge()
+    private var cache: [URL: (Date, Data?)] = [:]
+    private var pending: [URL: Task<Data?, Never>] = [:]
+
+    func data(for url: URL) async -> Data? {
+        if let entry = cache[url], Date().timeIntervalSince(entry.0) < 300 { return entry.1 }
+        if let task = pending[url] { return await task.value }
+        guard let script = try? MusicAppScripts.artwork(id: url.lastPathComponent,
+                                                       playlist: url.host == "playlist") else { return nil }
+        let task = Task { try? await bridge.artworkData(script) }
+        pending[url] = task
+        let data = await task.value
+        pending[url] = nil
+        if cache.count >= 256 { cache.removeAll(keepingCapacity: true) }
+        cache[url] = (Date(), data)
+        return data
+    }
 }

@@ -36,3 +36,11 @@ These checks change playback or the library, so perform them deliberately in the
 - Local ad hoc builds may need Automation permission again after rebuilding. Signed distribution and notarization are separate future work.
 
 The retained MusicKit backend remains available in Account & integration and has its own [setup guide](musickit-setup.md).
+
+### Artwork
+
+- Connect to Music.app and open a playlist with known cover art. Its cover should appear in the sidebar and playlist header.
+- Scroll through songs, search the library, open favorites, and change playback in Music. Track covers should appear in the table, player, and queue.
+- Playlist artwork is requested directly from Music. If unavailable, the first track's cover is used. Empty playlists and tracks without artwork retain the generated placeholder.
+- Artwork requests run separately from metadata and playback polling. Concurrent requests share a fetch, and up to 256 results are cached in memory for five minutes. MusicKit connections continue to use Apple's artwork URLs.
+- Replace a cover in Music and reopen the playlist after five minutes to check cache expiry.
