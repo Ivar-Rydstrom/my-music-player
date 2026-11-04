@@ -241,7 +241,8 @@ final class PlaybackController: ObservableObject {
         }
     }
     private func accept(_ snapshot: MusicAppSnapshot) {
-        current = snapshot.track; isPlaying = snapshot.isPlaying
+        if current != snapshot.track { current = snapshot.track }
+        isPlaying = snapshot.isPlaying
         progress = max(0, snapshot.position); shuffle = snapshot.shuffle
         repeatAll = snapshot.repeatAll; volume = snapshot.volume
         upcoming = []

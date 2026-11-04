@@ -21,7 +21,7 @@ actor MusicAppBridge {
             guard let row = result.atIndex(index + 1), let id = row.atIndex(1)?.stringValue,
                   let name = row.atIndex(2)?.stringValue else { return nil }
             let editable = row.atIndex(3)?.booleanValue ?? false
-            return MusicPlaylist(id: id, name: name, subtitle: editable ? "From your library" : "From your library · read-only playlist", canAddTracks: editable)
+            return MusicPlaylist(id: id, name: name, subtitle: editable ? "From your library" : "From your library · read-only playlist", artwork: URL(string: "music-artwork://playlist/\(id)"), canAddTracks: editable)
         }
     }
     func tracks(in playlist: MusicPlaylist) throws -> [LibraryTrack] {
@@ -41,6 +41,12 @@ actor MusicAppBridge {
         return MusicAppSnapshot(track: track, isPlaying: result.atIndex(1)?.stringValue == "playing",
             position: result.atIndex(2)?.doubleValue ?? 0, shuffle: result.atIndex(3)?.booleanValue ?? false,
             repeatAll: result.atIndex(4)?.stringValue == "all", volume: result.atIndex(5)?.doubleValue ?? 50)
+    }
+    func artworkData(_ source: String) throws -> Data? {
+        let result = try execute(source)
+        // Missing value is an enum descriptor, not image data.
+        let data = result.data
+        return data.count > 16 ? data : nil
     }
     func run(_ source: String) throws { _ = try execute(source) }
 
@@ -70,6 +76,7 @@ actor MusicAppBridge {
                 artist: columns.atIndex(3)?.atIndex(offset)?.stringValue ?? "",
                 album: columns.atIndex(4)?.atIndex(offset)?.stringValue ?? "",
                 duration: columns.atIndex(5)?.atIndex(offset)?.doubleValue ?? 0,
+                artwork: URL(string: "music-artwork://track/\(id)" + (playlistID.map { "?playlist=\($0)" } ?? "")),
                 resourceType: "music-app-track", sourcePlaylistID: playlistID,
                 sourceIndex: playlistID == nil ? nil : offset,
                 isFavorite: columns.atIndex(6)?.atIndex(offset)?.booleanValue,
@@ -80,7 +87,7 @@ actor MusicAppBridge {
         guard let id = row.atIndex(1)?.stringValue else { return nil }
         return LibraryTrack(id: id, title: row.atIndex(2)?.stringValue ?? "Untitled",
             artist: row.atIndex(3)?.stringValue ?? "", album: row.atIndex(4)?.stringValue ?? "",
-            duration: row.atIndex(5)?.doubleValue ?? 0, resourceType: "music-app-track",
+            duration: row.atIndex(5)?.doubleValue ?? 0, artwork: URL(string: "music-artwork://track/\(id)"), resourceType: "music-app-track",
             isFavorite: row.atIndex(6)?.booleanValue, playCount: row.atIndex(7).map { Int($0.int32Value) })
     }
 }
@@ -119,4 +126,128 @@ final class MusicAppLibrary: LibraryServing {
     func setVolume(_ value: Double) async throws { try await bridge.run(MusicAppScripts.volume(value)) }
     func setShuffle(_ enabled: Bool) async throws { try await bridge.run(MusicAppScripts.shuffle(enabled)) }
     func setRepeat(_ enabled: Bool) async throws { try await bridge.run(MusicAppScripts.repeatAll(enabled)) }
+}
+
+/// Visible tracks and headers go ahead of sidebar covers and speculative prefetch.
+/// Only one Music artwork request is in flight; metadata and playback use a separate bridge.
+actor MusicArtworkLoader {
+    static let shared = MusicArtworkLoader()
+    private let bridge = MusicAppBridge()
+    private var disk = ArtworkCache()
+    private var cache = ArtworkMemoryCache()
+    private var rowThumbnails = ArtworkMemoryCache()
+    private var misses: [URL: Date] = [:]
+    private var waiting: [URL: [CheckedContinuation<Data?, Never>]] = [:]
+    private var queue: [(url: URL, priority: Int)] = []
+    private var running = false
+    private var backgroundPlan = ArtworkPrefetchPlan()
+    private var backgroundTask: Task<Void, Never>?
+    private var backgroundGeneration = UUID()
+
+    func data(for url: URL, priority: Int = 0, retryMissing: Bool = false) async -> Data? {
+        if let data = cache.read(url) { return data }
+        if let data = disk.read(url) {
+            remember(data, for: url)
+            return data
+        }
+        if !retryMissing, let date = misses[url], Date().timeIntervalSince(date) < 30 { return nil }
+        return await withCheckedContinuation { continuation in
+            if waiting[url] != nil {
+                waiting[url]?.append(continuation)
+                if let index = queue.firstIndex(where: { $0.url == url }) {
+                    queue[index].priority = min(priority, queue[index].priority)
+                }
+            } else {
+                waiting[url] = [continuation]
+                queue.append((url, priority))
+            }
+            if !running {
+                running = true
+                Task { await drain() }
+            }
+        }
+    }
+
+    func prefetchTracks(_ urls: [URL]) {
+        if backgroundPlan.setTracks(urls) { startBackgroundLoading() }
+    }
+
+    func prefetchPlaylists(_ urls: [URL]) {
+        if backgroundPlan.setPlaylists(urls) { startBackgroundLoading() }
+    }
+
+    private func startBackgroundLoading() {
+        backgroundTask?.cancel()
+        // Revisit any earlier misses still belonging to the current inventory.
+        backgroundPlan.restart()
+        let generation = UUID()
+        backgroundGeneration = generation
+        backgroundTask = Task(priority: .background) {
+            defer { if backgroundGeneration == generation { backgroundTask = nil } }
+            do {
+                // Give visible rows a head start when a playlist or library changes.
+                try await Task.sleep(for: .milliseconds(250))
+                var failed: [URL] = []
+                while !Task.isCancelled, let url = backgroundPlan.next() {
+                    if await data(for: url, priority: 2) == nil { failed.append(url) }
+                    await Task.yield()
+                }
+                // Finish the initial pass before retrying temporary misses offscreen.
+                for delay in [1, 3, 10, 30] where !failed.isEmpty {
+                    try await Task.sleep(for: .seconds(delay))
+                    let retry = failed
+                    failed = []
+                    for url in retry {
+                        try Task.checkCancellation()
+                        if await data(for: url, priority: 2, retryMissing: true) == nil { failed.append(url) }
+                        await Task.yield()
+                    }
+                }
+            } catch { /* A new playlist or library superseded this background pass. */ }
+        }
+    }
+
+    func thumbnail(for url: URL, pixels: Int) async -> Data? {
+        if pixels <= 96, let thumbnail = rowThumbnails.read(url) { return thumbnail }
+        let priority = url.host == "track" || pixels > 96 ? 0 : 1
+        // Negative caching suppresses speculative prefetch, not recovery of a visible row.
+        // Keep retrying this same URL; SwiftUI's .task(id:) does not restart after a nil result.
+        let loaded = await ArtworkRetry.load {
+            await self.data(for: url, priority: priority, retryMissing: true)
+        }
+        guard let data = loaded else { return nil }
+        guard pixels <= 96 else { return data }
+        guard let thumbnail = ArtworkCache.thumbnail(data, pixels: 96) else { return nil }
+        rowThumbnails.write(thumbnail, for: url)
+        return thumbnail
+    }
+
+    private func drain() async {
+        while !queue.isEmpty {
+            // min preserves insertion order among requests with the same priority.
+            let index = queue.indices.min { queue[$0].priority < queue[$1].priority }!
+            let url = queue.remove(at: index).url
+            let playlistID = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first { $0.name == "playlist" }?.value
+            let script = try? MusicAppScripts.artwork(id: url.lastPathComponent,
+                playlist: url.host == "playlist", sourcePlaylistID: playlistID)
+            let original = if let script { try? await bridge.artworkData(script) } else { nil as Data? }
+            let data = original.flatMap { ArtworkCache.thumbnail($0, pixels: 320) }
+            if let data {
+                misses[url] = nil
+                remember(data, for: url)
+                disk.write(data, for: url)
+            } else {
+                if misses.count >= 256 { misses.removeAll() }
+                misses[url] = Date()
+            }
+            let continuations = waiting.removeValue(forKey: url) ?? []
+            for continuation in continuations { continuation.resume(returning: data) }
+        }
+        running = false
+    }
+
+    private func remember(_ data: Data, for url: URL) {
+        cache.write(data, for: url)
+    }
 }

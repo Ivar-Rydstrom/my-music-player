@@ -44,6 +44,12 @@ struct ContentView: View {
             } else if !ProcessInfo.processInfo.arguments.contains("--sample-library") { await model.restoreConnectionIfNeeded() }
             if ProcessInfo.processInfo.arguments.contains("--show-settings") || ProcessInfo.processInfo.arguments.contains("--connect-music") { openSettings() }
         }
+        .task(id: model.tracks.compactMap(\.artwork)) {
+            await MusicArtworkLoader.shared.prefetchTracks(model.tracks.compactMap(\.artwork))
+        }
+        .task(id: model.playlists.compactMap(\.artwork)) {
+            await MusicArtworkLoader.shared.prefetchPlaylists(model.playlists.compactMap(\.artwork))
+        }
         .sheet(isPresented: $showSearch) { SearchView(model: model) }
 
         .alert("Couldn't complete that action", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
@@ -88,9 +94,9 @@ struct ContentView: View {
             TextField("Filter playlists", text: $sidebarFilter).textFieldStyle(.plain)
                 .font(.caption).padding(.horizontal, 24).padding(.bottom, 12)
             ScrollView {
-                VStack(spacing: 3) {
+                LazyVStack(spacing: 3) {
                     ForEach(model.sortedPlaylists.filter { sidebarFilter.isEmpty || $0.name.localizedStandardContains(sidebarFilter) }) { playlist in
-                        sidebarItem(playlist.name, icon: model.pinned.contains(playlist.id) ? "pin.fill" : "music.note.list", id: playlist.id)
+                        sidebarItem(playlist.name, icon: model.pinned.contains(playlist.id) ? "pin.fill" : "music.note.list", id: playlist.id, artwork: playlist.artwork)
                             .contextMenu {
                                 Button(model.pinned.contains(playlist.id) ? "Unpin playlist" : "Pin playlist") { model.pin(playlist) }
                             }
@@ -112,10 +118,14 @@ struct ContentView: View {
         }.background(theme.surface.opacity(0.6))
     }
 
-    private func sidebarItem(_ title: String, icon: String, id: String) -> some View {
+    private func sidebarItem(_ title: String, icon: String, id: String, artwork: URL? = nil) -> some View {
         Button { Task { await model.select(id) } } label: {
             HStack(spacing: 11) {
-                Image(systemName: icon).frame(width: 16).foregroundStyle(model.selectedID == id ? theme.accent : theme.muted)
+                if let artwork {
+                    Artwork(url: artwork, seed: title, size: 28)
+                } else {
+                    Image(systemName: icon).frame(width: 16).foregroundStyle(model.selectedID == id ? theme.accent : theme.muted)
+                }
                 Text(title).lineLimit(1).font(.system(size: 12))
                 Spacer(minLength: 0)
             }
@@ -189,6 +199,7 @@ struct Artwork: View {
     var url: URL?
     var seed: String
     var size: CGFloat
+    @State private var localImage: NSImage?
     private var hue: Double { Double(seed.utf8.reduce(0) { $0 + Int($1) } % 100) / 100 }
     var body: some View {
         ZStack {
@@ -201,10 +212,21 @@ struct Artwork: View {
                     }
                 }.position(x: proxy.size.width * 0.75, y: proxy.size.height * 0.7)
             }.clipped()
-            if let url {
+            if url?.scheme == "music-artwork" {
+                if let localImage {
+                    Image(nsImage: localImage).resizable().scaledToFill()
+                }
+            } else if let url {
                 AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
             }
         }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: 8)).accessibilityHidden(true)
+        .task(id: url) {
+            localImage = nil
+            guard let url, url.scheme == "music-artwork" else { return }
+            let data = await MusicArtworkLoader.shared.thumbnail(for: url, pixels: size > 48 ? 320 : 96)
+            guard !Task.isCancelled else { return }
+            localImage = data.flatMap { NSImage(data: $0) }
+        }
     }
 }
 
