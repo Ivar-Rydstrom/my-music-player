@@ -21,7 +21,7 @@ actor MusicAppBridge {
             guard let row = result.atIndex(index + 1), let id = row.atIndex(1)?.stringValue,
                   let name = row.atIndex(2)?.stringValue else { return nil }
             let editable = row.atIndex(3)?.booleanValue ?? false
-            return MusicPlaylist(id: id, name: name, subtitle: editable ? "Your Music library" : "Your Music library · read-only playlist", artwork: URL(string: "music-artwork://playlist/\(id)"), canAddTracks: editable)
+            return MusicPlaylist(id: id, name: name, subtitle: editable ? "From your library" : "From your library · read-only playlist", artwork: URL(string: "music-artwork://playlist/\(id)"), canAddTracks: editable)
         }
     }
     func tracks(in playlist: MusicPlaylist) throws -> [LibraryTrack] {
@@ -118,6 +118,7 @@ final class MusicAppLibrary: LibraryServing {
     }
     func snapshot() async throws -> MusicAppSnapshot { try await bridge.snapshot() }
     func play(_ track: LibraryTrack) async throws { try await bridge.run(MusicAppScripts.play(track)) }
+    func pause() async throws { try await bridge.run(MusicAppScripts.wrap("pause")) }
     func toggle() async throws { try await bridge.run(MusicAppScripts.wrap("playpause")) }
     func next() async throws { try await bridge.run(MusicAppScripts.wrap("next track")) }
     func previous() async throws { try await bridge.run(MusicAppScripts.wrap("back track")) }

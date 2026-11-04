@@ -8,6 +8,7 @@ let package = Package(
     targets: [
         .target(name: "PlayerCore"),
         .executableTarget(name: "StillPlayer", dependencies: ["PlayerCore"]),
-        .testTarget(name: "PlayerCoreTests", dependencies: ["PlayerCore"])
+        .testTarget(name: "PlayerCoreTests", dependencies: ["PlayerCore"]),
+        .testTarget(name: "StillPlayerTests", dependencies: ["StillPlayer", "PlayerCore"])
     ]
 )

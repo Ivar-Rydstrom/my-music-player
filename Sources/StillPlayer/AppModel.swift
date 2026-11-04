@@ -14,6 +14,7 @@ final class AppModel: ObservableObject {
     @Published var pinned = Set<String>(UserDefaults.standard.stringArray(forKey: "sample.pins") ?? ["demo-focus", "demo-evening"])
     @Published var isLive = false
     @Published var usesMusicApp = false
+    @Published var recentTracks: [LibraryTrack] = []
     @Published var favoriteTracks: [LibraryTrack] = []
     @Published var isConnecting = false
     @Published var connectionStatus = "Not connected"
@@ -32,11 +33,22 @@ final class AppModel: ObservableObject {
     private var preferencePrefix: String { usesMusicApp ? "musicApp" : isLive ? "live" : "sample" }
 
     init() {
+        playback.$current.combineLatest(playback.$isPlaying)
+            .removeDuplicates { $0.0 == $1.0 && $0.1 == $1.1 }
+            .sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &subscriptions)
         playback.$errorMessage.compactMap { $0 }.sink { [weak self] message in
             self?.error = message
             self?.record(message)
         }.store(in: &subscriptions)
-        playback.$current.compactMap { $0 }.sink { [weak self] track in
+        playback.$current.removeDuplicates(by: { $0?.id == $1?.id }).compactMap { $0 }.sink { [weak self] track in
+            guard let self else { return }
+            if self.recentTracks.first?.id != track.id {
+                self.recentTracks.removeAll { $0.id == track.id }
+                self.recentTracks.insert(track, at: 0)
+                self.recentTracks = Array(self.recentTracks.prefix(100))
+            }
+        }.store(in: &subscriptions)
+        playback.$current.removeDuplicates().compactMap { $0 }.sink { [weak self] track in
             guard let self, self.usesMusicApp else { return }
             self.mergeFavoriteStates([track])
         }.store(in: &subscriptions)
@@ -44,6 +56,7 @@ final class AppModel: ObservableObject {
 
     var playlist: MusicPlaylist? { playlists.first { $0.id == selectedID } }
     var tracks: [LibraryTrack] {
+        if selectedID == "recent" { return recentTracks }
         if selectedID == "favorites" {
             let known = isLive ? favoriteTracks + loadedTracks.values.flatMap { $0 } + searchResults : SampleLibrary.tracks
             var seen = Set<String>()
@@ -108,6 +121,7 @@ final class AppModel: ObservableObject {
             let fetched = try await library.playlists()
             connectionStatus = "Reading Music playback state"
             let snapshot = try await library.snapshot()
+            recentTracks = []
             session = UUID(); service = library; usesMusicApp = true; isLive = true
             accountStorefront = nil; canStream = false; cloudLibraryEnabled = false
             playlists = fetched; loadedTracks = [:]; searchResults = []; favoriteTracks = []; favorites = []
@@ -140,6 +154,7 @@ final class AppModel: ObservableObject {
             record("Account verified. Storefront: \(account.storefront). Catalog playback: \(account.canStream ? "available" : "unavailable"). Sync Library: \(account.cloudLibraryEnabled ? "enabled" : "disabled").")
             connectionStatus = "Loading playlists"
             let fetched = try await apple.playlists()
+            recentTracks = []
             session = UUID(); service = apple; isLive = true
             usesMusicApp = false; favoriteTracks = []
             accountStorefront = account.storefront; canStream = account.canStream
@@ -165,6 +180,7 @@ final class AppModel: ObservableObject {
         }
     }
     func useSamples() {
+        recentTracks = []
         session = UUID(); playback.configure(library: nil); service = SampleMusicLibrary(); isLive = false; usesMusicApp = false
         favoriteTracks = []
         connectionStatus = "Not connected"; accountStorefront = nil; canStream = false; cloudLibraryEnabled = false
@@ -214,7 +230,7 @@ final class AppModel: ObservableObject {
             } else {
                 favorites.remove(track.id); favoriteTracks.removeAll { $0.id == track.id }
             }
-            notice = value ? "Favorited in Music." : "Removed from favorites in Music."
+            notice = value ? "Added to favorites." : "Removed from favorites."
             record("\(value ? "Favorited" : "Unfavorited") \(track.title) in Music.")
             return
         }
@@ -223,7 +239,7 @@ final class AppModel: ObservableObject {
             try await service.favorite(track)
             guard token == session else { return }
             favorites.insert(track.id)
-            notice = isLive ? "Favorite request accepted. Check Music on your iPhone to confirm sync." : "Saved to sample favorites."
+            notice = isLive ? "Added to favorites." : "Saved to sample favorites."
             record("\(isLive ? "Apple accepted favorite request for" : "Favorited") \(track.title).")
         }
         if !isLive { UserDefaults.standard.set(Array(favorites), forKey: "sample.favorites") }
