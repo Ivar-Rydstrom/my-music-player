@@ -19,6 +19,7 @@ final class PlaybackController: ObservableObject {
     @Published var shuffle = false
     @Published var repeatAll = false
     @Published private(set) var volume: Double = 50
+    @Published private(set) var sleepUntil: Date?
     @Published var errorMessage: String?
     private var demo = DemoQueue()
     private var nativeLibrary: AppleMusicLibrary?
@@ -27,6 +28,11 @@ final class PlaybackController: ObservableObject {
     private var polling = false
     private var pollingSuspended = false
     private var lastTick = Date()
+    private var ticker: AnyCancellable?
+    init() {
+        ticker = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
+            .sink { [weak self] _ in self?.tick() }
+    }
     private var player: ApplicationMusicPlayer { .shared }
     var isLive: Bool { nativeLibrary != nil || musicApp != nil }
     var isMusicApp: Bool { musicApp != nil }
@@ -34,6 +40,7 @@ final class PlaybackController: ObservableObject {
 
     func configure(library: AppleMusicLibrary?) {
         if nativeLibrary != nil { player.stop() }
+        sleepUntil = nil
         generation = UUID(); musicApp = nil; pollingSuspended = false
         nativeLibrary = library
         demo = DemoQueue()
@@ -149,7 +156,28 @@ final class PlaybackController: ObservableObject {
         player.state.shuffleMode = shuffle ? .songs : .off
         player.state.repeatMode = repeatAll ? .all : MusicPlayer.RepeatMode.none
     }
-    func tick() {
+    func setSleepTimer(minutes: Int?) {
+        sleepUntil = minutes.map { Date().addingTimeInterval(Double($0) * 60) }
+    }
+    func clearUpcoming() {
+        for entry in upcoming { remove(entry.id) }
+    }
+    private func pauseForSleep() async throws {
+        if let musicApp { try await musicApp.pause(); await pollMusicApp() }
+        else if nativeLibrary != nil { player.pause() }
+        else { isPlaying = false }
+        refresh()
+    }
+    func tick(now: Date = Date()) {
+        if let deadline = sleepUntil, now >= deadline {
+            sleepUntil = nil
+            let token = generation
+            Task {
+                guard token == generation else { return }
+                do { try await pauseForSleep() }
+                catch { if token == generation { errorMessage = error.localizedDescription } }
+            }
+        }
         defer { lastTick = Date() }
         if musicApp != nil {
             guard !polling, !pollingSuspended else { return }
