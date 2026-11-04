@@ -144,13 +144,13 @@ actor MusicArtworkLoader {
     private var queue: [(url: URL, priority: Int)] = []
     private var running = false
 
-    func data(for url: URL, priority: Int = 0) async -> Data? {
+    func data(for url: URL, priority: Int = 0, retryMissing: Bool = false) async -> Data? {
         if let entry = cache[url], Date().timeIntervalSince(entry.date) < 7 * 24 * 60 * 60 { return entry.data }
         if let data = disk.read(url) {
             remember(data, for: url)
             return data
         }
-        if let date = misses[url], Date().timeIntervalSince(date) < 30 { return nil }
+        if !retryMissing, let date = misses[url], Date().timeIntervalSince(date) < 30 { return nil }
         return await withCheckedContinuation { continuation in
             if waiting[url] != nil {
                 waiting[url]?.append(continuation)
@@ -179,7 +179,12 @@ actor MusicArtworkLoader {
 
     func thumbnail(for url: URL, pixels: Int) async -> Data? {
         let priority = url.host == "track" || pixels > 96 ? 0 : 1
-        guard let data = await data(for: url, priority: priority) else { return nil }
+        // Negative caching suppresses speculative prefetch, not recovery of a visible row.
+        // Keep retrying this same URL; SwiftUI's .task(id:) does not restart after a nil result.
+        let loaded = await ArtworkRetry.load {
+            await self.data(for: url, priority: priority, retryMissing: true)
+        }
+        guard let data = loaded else { return nil }
         return pixels <= 96 ? ArtworkCache.thumbnail(data, pixels: 96) : data
     }
 
@@ -195,6 +200,7 @@ actor MusicArtworkLoader {
             let original = if let script { try? await bridge.artworkData(script) } else { nil as Data? }
             let data = original.flatMap { ArtworkCache.thumbnail($0, pixels: 320) }
             if let data {
+                misses[url] = nil
                 remember(data, for: url)
                 disk.write(data, for: url)
             } else {

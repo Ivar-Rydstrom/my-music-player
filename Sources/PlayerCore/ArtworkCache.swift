@@ -62,3 +62,24 @@ public struct ArtworkCache {
         }
     }
 }
+
+/// A visible image keeps its request alive across transient Music misses.
+/// Sleep is cancellable so disappearing/reused rows stop retrying immediately.
+public enum ArtworkRetry {
+    public static func load(
+        delays: [Duration] = [.milliseconds(300), .seconds(1), .seconds(3), .seconds(10), .seconds(30)],
+        attempt: @Sendable () async -> Data?,
+        sleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    ) async -> Data? {
+        for index in 0...delays.count {
+            guard !Task.isCancelled else { return nil }
+            let data = await attempt()
+            guard !Task.isCancelled else { return nil }
+            if let data { return data }
+            guard index < delays.count else { return nil }
+            do { try await sleep(delays[index]) }
+            catch { return nil }
+        }
+        return nil
+    }
+}
