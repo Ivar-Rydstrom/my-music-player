@@ -102,12 +102,7 @@ final class MusicAppLibrary: LibraryServing {
         try await bridge.handshake()
     }
     func playlists() async throws -> [MusicPlaylist] { try await bridge.playlists() }
-    func tracks(in playlist: MusicPlaylist) async throws -> [LibraryTrack] {
-        let tracks = try await bridge.tracks(in: playlist)
-        let urls = tracks.prefix(12).compactMap(\.artwork)
-        Task { await MusicArtworkLoader.shared.prefetch(urls) }
-        return tracks
-    }
+    func tracks(in playlist: MusicPlaylist) async throws -> [LibraryTrack] { try await bridge.tracks(in: playlist) }
     func favorites() async throws -> [LibraryTrack] { try await bridge.favorites() }
     func search(_ term: String, catalog: Bool) async throws -> [LibraryTrack] {
         guard !catalog else { throw LibraryFailure.message("Music automation searches your library. Open Music to search the Apple Music catalog.") }
@@ -143,6 +138,9 @@ actor MusicArtworkLoader {
     private var waiting: [URL: [CheckedContinuation<Data?, Never>]] = [:]
     private var queue: [(url: URL, priority: Int)] = []
     private var running = false
+    private var backgroundPlan = ArtworkPrefetchPlan()
+    private var backgroundTask: Task<Void, Never>?
+    private var backgroundGeneration = UUID()
 
     func data(for url: URL, priority: Int = 0, retryMissing: Bool = false) async -> Data? {
         if let entry = cache[url], Date().timeIntervalSince(entry.date) < 7 * 24 * 60 * 60 { return entry.data }
@@ -168,12 +166,42 @@ actor MusicArtworkLoader {
         }
     }
 
-    func prefetch(_ urls: [URL]) async {
-        // Bounded lookahead starts with the first screen, without waiting in the metadata path.
-        await withTaskGroup(of: Void.self) { group in
-            for url in urls.prefix(12) {
-                group.addTask { _ = await self.data(for: url, priority: 2) }
-            }
+    func prefetchTracks(_ urls: [URL]) {
+        if backgroundPlan.setTracks(urls) { startBackgroundLoading() }
+    }
+
+    func prefetchPlaylists(_ urls: [URL]) {
+        if backgroundPlan.setPlaylists(urls) { startBackgroundLoading() }
+    }
+
+    private func startBackgroundLoading() {
+        backgroundTask?.cancel()
+        // Revisit any earlier misses still belonging to the current inventory.
+        backgroundPlan.restart()
+        let generation = UUID()
+        backgroundGeneration = generation
+        backgroundTask = Task(priority: .background) {
+            defer { if backgroundGeneration == generation { backgroundTask = nil } }
+            do {
+                // Give visible rows a head start when a playlist or library changes.
+                try await Task.sleep(for: .milliseconds(250))
+                var failed: [URL] = []
+                while !Task.isCancelled, let url = backgroundPlan.next() {
+                    if await data(for: url, priority: 2) == nil { failed.append(url) }
+                    try await Task.sleep(for: .milliseconds(75))
+                }
+                // Finish the initial pass before retrying temporary misses offscreen.
+                for delay in [1, 3, 10, 30] where !failed.isEmpty {
+                    try await Task.sleep(for: .seconds(delay))
+                    let retry = failed
+                    failed = []
+                    for url in retry {
+                        try Task.checkCancellation()
+                        if await data(for: url, priority: 2, retryMissing: true) == nil { failed.append(url) }
+                        try await Task.sleep(for: .milliseconds(75))
+                    }
+                }
+            } catch { /* A new playlist or library superseded this background pass. */ }
         }
     }
 

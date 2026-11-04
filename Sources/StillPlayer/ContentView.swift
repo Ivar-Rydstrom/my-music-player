@@ -43,6 +43,12 @@ struct ContentView: View {
                 FileHandle.standardOutput.write(Data(report.utf8))
             } else { await model.restoreConnectionIfNeeded() }
         }
+        .task(id: model.tracks.compactMap(\.artwork)) {
+            await MusicArtworkLoader.shared.prefetchTracks(model.tracks.compactMap(\.artwork))
+        }
+        .task(id: model.playlists.compactMap(\.artwork)) {
+            await MusicArtworkLoader.shared.prefetchPlaylists(model.playlists.compactMap(\.artwork))
+        }
         .sheet(isPresented: $showSearch) { SearchView(model: model) }
         .sheet(isPresented: $showDiagnostics) { DiagnosticsView(model: model) }
         .alert("Couldn't complete that action", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {

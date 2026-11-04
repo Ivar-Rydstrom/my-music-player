@@ -9,3 +9,10 @@ Stored 320px PNG bytes: 1,086,103.
 
 Validation: 22 Swift tests passed; native Xcode debug build succeeded.
 Live app: verified seven visible song covers, playlist header/sidebar covers, and player/queue covers.
+
+Background warming follow-up:
+31 Swift tests passed; native Xcode debug build succeeded.
+With the restored 136-track playlist left open and no scrolling, all 136 track covers
+reached the disk cache. All 51 sidebar covers were also present. Temporary offscreen
+misses recovered through background retry passes. This confirms cache coverage,
+not a cold-network loading-time measurement.
