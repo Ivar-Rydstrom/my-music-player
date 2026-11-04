@@ -1,0 +1,6 @@
+// Local Music.app automation works with ad hoc signing and no developer account.
+// MusicKit requires your developer identity in Local.xcconfig.
+PRODUCT_BUNDLE_IDENTIFIER = com.example.StillPlayer
+CODE_SIGN_STYLE = Automatic
+CODE_SIGN_IDENTITY = -
+#include? "Local.xcconfig"
