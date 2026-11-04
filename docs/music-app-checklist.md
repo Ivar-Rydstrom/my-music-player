@@ -40,6 +40,7 @@ The retained MusicKit backend remains available in Account & integration and has
 ### Artwork
 
 - Connect to Music.app and open a playlist with known cover art. Its cover should appear in the sidebar and playlist header.
+- Include a cloud playlist containing songs not saved in your main Music library. Those rows must load covers using their source playlist.
 - Scroll through songs, search the library, open favorites, and change playback in Music. Track covers should appear in the table, player, and queue.
 - Playlist artwork is requested directly from Music. If unavailable, the first track's cover is used. Empty playlists and tracks without artwork retain the generated placeholder.
 - Artwork requests run separately from metadata and playback polling. Concurrent requests share a fetch, and up to 256 results are cached in memory for five minutes. MusicKit connections continue to use Apple's artwork URLs.

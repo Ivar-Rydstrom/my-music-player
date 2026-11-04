@@ -76,7 +76,7 @@ actor MusicAppBridge {
                 artist: columns.atIndex(3)?.atIndex(offset)?.stringValue ?? "",
                 album: columns.atIndex(4)?.atIndex(offset)?.stringValue ?? "",
                 duration: columns.atIndex(5)?.atIndex(offset)?.doubleValue ?? 0,
-                artwork: URL(string: "music-artwork://track/\(id)"),
+                artwork: URL(string: "music-artwork://track/\(id)" + (playlistID.map { "?playlist=\($0)" } ?? "")),
                 resourceType: "music-app-track", sourcePlaylistID: playlistID,
                 sourceIndex: playlistID == nil ? nil : offset,
                 isFavorite: columns.atIndex(6)?.atIndex(offset)?.booleanValue,
@@ -137,8 +137,11 @@ actor MusicArtworkLoader {
     func data(for url: URL) async -> Data? {
         if let entry = cache[url], Date().timeIntervalSince(entry.0) < 300 { return entry.1 }
         if let task = pending[url] { return await task.value }
+        let playlistID = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.first { $0.name == "playlist" }?.value
         guard let script = try? MusicAppScripts.artwork(id: url.lastPathComponent,
-                                                       playlist: url.host == "playlist") else { return nil }
+                                                       playlist: url.host == "playlist",
+                                                       sourcePlaylistID: playlistID) else { return nil }
         let task = Task { try? await bridge.artworkData(script) }
         pending[url] = task
         let data = await task.value

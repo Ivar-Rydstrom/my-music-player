@@ -102,11 +102,14 @@ public enum MusicAppScripts {
         return {stateText, positionValue, shuffle enabled, (song repeat as text), sound volume, trackRow}
         """)
     /// Artwork is fetched separately so bulk library reads remain fast.
-    public static func artwork(id: String, playlist: Bool = false) throws -> String {
+    public static func artwork(id: String, playlist: Bool = false, sourcePlaylistID: String? = nil) throws -> String {
         let id = try identifier(id)
+        // Cloud playlist tracks need not be members of the main library.
+        let source = try sourcePlaylistID.map { "(first playlist whose persistent ID is \(try identifier($0)))" }
+            ?? "library playlist 1"
         let target = playlist
             ? "first playlist whose persistent ID is \(id)"
-            : "first track of library playlist 1 whose persistent ID is \(id)"
+            : "first track of \(source) whose persistent ID is \(id)"
         let fallback = playlist ? """
             try
                 set t to first track of (first playlist whose persistent ID is \(id))
