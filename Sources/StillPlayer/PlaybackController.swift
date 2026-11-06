@@ -20,6 +20,8 @@ final class PlaybackController: ObservableObject {
     @Published var repeatAll = false
     @Published private(set) var volume: Double = 50
     @Published private(set) var sleepUntil: Date?
+    /// The list (playlist, Favorites, Recently played) the app last started playback from.
+    @Published private(set) var contextID: String?
     @Published var errorMessage: String?
     private var demo = DemoQueue()
     private var nativeLibrary: AppleMusicLibrary?
@@ -44,7 +46,7 @@ final class PlaybackController: ObservableObject {
         generation = UUID(); musicApp = nil; pollingSuspended = false
         nativeLibrary = library
         demo = DemoQueue()
-        current = nil; upcoming = []; isPlaying = false; progress = 0
+        current = nil; upcoming = []; isPlaying = false; progress = 0; contextID = nil
         shuffle = false; repeatAll = false
     }
 
@@ -54,7 +56,15 @@ final class PlaybackController: ObservableObject {
         accept(snapshot)
     }
 
-    func play(_ tracks: [LibraryTrack], at offset: Int = 0) async throws {
+    /// Whether the current track is playing (or paused) from the given list, so its Play button
+    /// should pause and resume instead of restarting from the top.
+    func isCurrentContext(_ listID: String?, tracks: [LibraryTrack]) -> Bool {
+        guard let listID, let current, tracks.contains(where: { $0.id == current.id }) else { return false }
+        // Music reports its playing playlist, which also covers playlists started from Music itself.
+        return contextID == listID || current.sourcePlaylistID == listID
+    }
+
+    func play(_ tracks: [LibraryTrack], at offset: Int = 0, context: String? = nil) async throws {
         guard !tracks.isEmpty else { return }
         if let musicApp {
             try await musicApp.setShuffle(shuffle)
@@ -75,19 +85,21 @@ final class PlaybackController: ObservableObject {
             if shuffle { demo.shuffleUpcoming() }
             progress = 0; isPlaying = true
         }
+        contextID = context
         lastTick = Date(); refresh()
     }
 
-    func playPlaylist(_ playlist: MusicPlaylist?, tracks: [LibraryTrack]) async throws {
+    func playPlaylist(_ playlist: MusicPlaylist?, tracks: [LibraryTrack], context: String? = nil) async throws {
         guard !tracks.isEmpty else { return }
         if let musicApp, let playlist {
             // Starting a shared cloud track alone can make Music shuffle the whole library.
             // Play the playlist object so Music owns the correct playback context.
             try await musicApp.setShuffle(shuffle)
             try await musicApp.play(playlist)
+            contextID = context
             await pollMusicApp()
         } else {
-            try await play(tracks)
+            try await play(tracks, context: context)
         }
     }
 

@@ -158,14 +158,23 @@ struct ContentView: View {
                 Spacer(minLength: 0)
             }.padding(30).frame(maxWidth: .infinity, alignment: .leading).background(theme.wash)
             HStack(spacing: 12) {
+                let playingHere = model.playback.isCurrentContext(model.selectedID, tracks: model.tracks)
+                let pauses = playingHere && model.playback.isPlaying
                 Button {
-                    model.perform { try await model.playback.playPlaylist(model.playlist, tracks: model.tracks) }
-                } label: { Label("Play", systemImage: "play.fill").padding(.horizontal, 13).padding(.vertical, 4) }
+                    model.perform {
+                        // Once this list is playing, the button pauses and resumes instead of restarting it.
+                        if playingHere { try await model.playback.toggle() }
+                        else { try await model.playback.playPlaylist(model.playlist, tracks: model.tracks, context: model.selectedID) }
+                    }
+                } label: {
+                    Label(pauses ? "Pause" : "Play", systemImage: pauses ? "pause.fill" : "play.fill")
+                        .frame(minWidth: 58).padding(.horizontal, 13).padding(.vertical, 4)
+                }
                     .buttonStyle(.borderedProminent).foregroundStyle(theme.buttonInk).disabled(model.tracks.isEmpty)
                 Button {
                     model.perform {
                         model.playback.shuffle = true
-                        try await model.playback.playPlaylist(model.playlist, tracks: model.tracks)
+                        try await model.playback.playPlaylist(model.playlist, tracks: model.tracks, context: model.selectedID)
                     }
                 } label: { Image(systemName: "shuffle") }.buttonStyle(.borderless).help("Shuffle playlist").disabled(model.tracks.isEmpty)
                 if model.selectedID == "recent", !model.recentTracks.isEmpty {
@@ -182,7 +191,7 @@ struct ContentView: View {
                 ContentUnavailableView(filter.wrappedValue.isEmpty ? "No songs here yet" : "No matching songs",
                     systemImage: "music.note", description: Text("Choose another playlist or search your library."))
             } else {
-                TrackTable(model: model, tracks: visible, selection: selection).id(viewID)
+                TrackTable(model: model, tracks: visible, selection: selection, context: model.selectedID).id(viewID)
                     .padding(.horizontal, 18)
             }
             HStack {
@@ -244,6 +253,8 @@ struct TrackTable: View {
     @ObservedObject var model: AppModel
     var tracks: [LibraryTrack]
     @Binding var selection: Set<String>
+    /// The list these rows belong to, if any, so the list's Play button knows it's playing.
+    var context: String? = nil
     @State private var sortOrder = [KeyPathComparator<DisplayTrack>]()
     private var rows: [DisplayTrack] {
         tracks.enumerated().map { DisplayTrack(id: "\($0.offset):\($0.element.id)", track: $0.element) }.sorted(using: sortOrder)
@@ -292,7 +303,7 @@ struct TrackTable: View {
             }
         } primaryAction: { ids in
             guard let first = rows.firstIndex(where: { ids.contains($0.id) }) else { return }
-            model.perform { try await model.playback.play(rows.map(\.track), at: first) }
+            model.perform { try await model.playback.play(rows.map(\.track), at: first, context: context) }
         }
     }
 }
