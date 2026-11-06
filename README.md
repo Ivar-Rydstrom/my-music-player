@@ -4,6 +4,34 @@ A native macOS music player built around playlists. SwiftUI renders the interfac
 
 Requires macOS 14 or later. No third-party dependencies.
 
+## Install
+
+Download `Still-<version>.dmg` from the [latest release](https://github.com/Ivar-Rydstrom/my-music-player/releases/latest), open it, and drag Still to Applications. Releases are signed with a self-signed certificate rather than an Apple Developer ID, so macOS blocks the first launch. Right-click Still and choose **Open**, or select **Open Anyway** under **System Settings > Privacy & Security**. This is needed once.
+
+After that, Still updates itself. It checks GitHub about once a day while open, and you can check from **Still > Check for Updates…** or **Settings > Updates**. Installing downloads the release zip, verifies its GitHub checksum, and confirms the new app is signed with the same certificate. Still then quits, replaces itself in place, and reopens. Settings and the Music Automation permission carry over because the signature stays the same. If macOS stops the replacement, Still says so on the next launch. Allow Still under **Privacy & Security > App Management**, or install the DMG manually.
+
+Local development builds are ad hoc signed and can check for updates but don't install them.
+
+## Release
+
+Releases are built by GitHub Actions. To publish one from an up-to-date, clean `main`:
+
+```sh
+zsh scripts/release.sh 0.2.0
+```
+
+That pushes the tag `v0.2.0`. The [Release workflow](.github/workflows/release.yml) runs the tests, builds a universal Release app with that version and the run number as its build number, signs it, and publishes `Still-0.2.0.dmg`, `Still-0.2.0.zip`, and `SHA256SUMS.txt` with generated release notes. Tags with a suffix, such as `v0.3.0-beta.1`, become prereleases, and the updater ignores them. The [CI workflow](.github/workflows/ci.yml) runs the tests and a Release build on every pull request and push to `main`.
+
+Signing uses one long-lived certificate kept in the repository's Actions secrets. Create it once with:
+
+```sh
+zsh scripts/create-signing-certificate.sh --upload
+```
+
+This writes the certificate to `~/.still-release-signing`. Back that folder up. A new certificate would make installed copies reject updates, so they'd need a manual DMG install, and macOS would ask for Automation permission again. To build a release package locally, run `zsh scripts/build-release.sh 0.2.0`. It's ad hoc signed unless `STILL_SIGNING_IDENTITY` names a certificate hash in your keychain.
+
+To try the updater against a local feed, launch a signed build with `--args -updates.feedURL http://127.0.0.1:8000/latest.json`. That file uses the GitHub release JSON format. Downloads still have to pass the signature check.
+
 ## Run locally and connect Music
 
 Open `StillPlayer.xcodeproj` in Xcode, select the StillPlayer scheme, and run. The project defaults to local ad hoc signing. Or build and launch from the terminal:
@@ -16,7 +44,7 @@ Open **Settings** with Command-comma or the sidebar button, select **Connection*
 
 To open the connection panel and attempt the read-only connection on launch, use `zsh scripts/run-local.sh --connect-music`. Close an older running build first so macOS launches the updated executable. Once a connection succeeds, it restores on later launches; **Use sample library** disables restoration and leaves Music's playback alone.
 
-The app has an Apple Events usage description, hardened-runtime Apple Events access, and sandbox scripting-target permissions scoped to Music's library and playback groups. It also includes an Apple-events sandbox exception limited to `com.apple.Music`: Music can reject playlist reads with privilege error -10004 despite the advertised scripting groups. The app remains sandboxed. It does not request Accessibility access or automate mouse clicks. If you decline permission, enable it in **System Settings > Privacy & Security > Automation**, then reconnect. Local rebuilds can cause macOS to ask again because an ad hoc signature changes with the executable.
+The app has an Apple Events usage description and hardened-runtime Apple Events access. It isn't sandboxed: it's distributed outside the App Store and replaces itself during updates, which the App Sandbox doesn't allow. It does not request Accessibility access or automate mouse clicks. If you decline permission, enable it in **System Settings > Privacy & Security > Automation**, then reconnect. Local rebuilds can cause macOS to ask again because an ad hoc signature changes with the executable.
 
 Or run `swift run StillPlayer` for the sample interface. That executable is not a configured app bundle and intentionally rejects account connections.
 
@@ -95,5 +123,7 @@ The Xcode project is checked in and has no generator dependency. If you add or r
 - `ContentView.swift`, `PlayerViews.swift`, `SearchView.swift`: native interface.
 - `Theme.swift`, `SettingsView.swift`, `ThemeColors.swift`: saved appearance, live palette editor, and sRGB contrast calculations.
 - `DiagnosticsView.swift`: account connection and integration observations.
+- `AppUpdate.swift` (PlayerCore): version comparison and GitHub release parsing. `AppUpdater.swift` and `UpdateViews.swift`: update checks, verified download and in-place install, and the update UI.
+- `scripts/build-release.sh`, `scripts/release.sh`, `scripts/create-signing-certificate.sh`: packaging, tagging, and the one-time release certificate.
 
 API references: [MusicKit](https://developer.apple.com/musickit/), [ApplicationMusicPlayer](https://developer.apple.com/documentation/musickit/applicationmusicplayer), [favorite resource](https://developer.apple.com/documentation/applemusicapi/add-resource-to-favorites), and [playlist additions](https://developer.apple.com/documentation/applemusicapi/add-tracks-to-a-library-playlist).

@@ -1,17 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-    <key>com.apple.security.app-sandbox</key><true/>
-    <key>com.apple.security.network.client</key><true/>
+    <!-- Still is distributed outside the App Store and replaces itself during updates, which the
+         App Sandbox doesn't allow. The hardened runtime still applies; Music automation needs
+         this entitlement plus the user's Automation approval. -->
     <key>com.apple.security.automation.apple-events</key><true/>
-    <!-- Music can reject core/getd playlist references despite its advertised access groups.
-         Keep the sandbox, and permit Apple events only to this additional explicit target. -->
-    <key>com.apple.security.temporary-exception.apple-events</key>
-    <array><string>com.apple.Music</string></array>
-    <key>com.apple.security.scripting-targets</key>
-    <dict><key>com.apple.Music</key><array>
-        <string>com.apple.Music.library.read</string>
-        <string>com.apple.Music.library.read-write</string>
-        <string>com.apple.Music.playback</string>
-    </array></dict>
 </dict></plist>

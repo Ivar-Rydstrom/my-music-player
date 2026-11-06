@@ -4,16 +4,21 @@ import SwiftUI
 struct StillPlayerApp: App {
     @StateObject private var model = AppModel()
     @StateObject private var themes = ThemeStore()
+    @StateObject private var updater = AppUpdater()
     var body: some Scene {
         WindowGroup {
             ContentView(model: model)
                 .frame(minWidth: 980, minHeight: 650)
                 .modifier(Themed(store: themes))
+                .modifier(UpdatePrompt(updater: updater))
         }
         .defaultSize(width: 1280, height: 820)
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .newItem) {}
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { Task { await updater.check(userInitiated: true) } }.disabled(updater.isBusy)
+            }
             CommandMenu("Playback") {
                 Button("Play / pause") { model.perform { try await model.playback.toggle() } }.keyboardShortcut("p", modifiers: [.command])
                 Button("Next song") { model.perform { try await model.playback.next() } }.keyboardShortcut(.rightArrow, modifiers: [.command])
@@ -23,7 +28,7 @@ struct StillPlayerApp: App {
             }
         }
         Settings {
-            SettingsView(model: model, store: themes).modifier(Themed(store: themes))
+            SettingsView(model: model, store: themes, updater: updater).modifier(Themed(store: themes))
         }
     }
 }

@@ -4,3 +4,5 @@ build/
 xcuserdata/
 *.xcuserstate
 Config/Local.xcconfig
+dist/
+.claude/worktrees/
