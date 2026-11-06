@@ -173,8 +173,7 @@ struct ContentView: View {
                     .buttonStyle(.borderedProminent).foregroundStyle(theme.buttonInk).disabled(model.tracks.isEmpty)
                 Button {
                     model.perform {
-                        model.playback.shuffle = true
-                        try await model.playback.playPlaylist(model.playlist, tracks: model.tracks, context: model.selectedID)
+                        try await model.playback.playPlaylist(model.playlist, tracks: model.tracks, context: model.selectedID, shuffled: true)
                     }
                 } label: { Image(systemName: "shuffle") }.buttonStyle(.borderless).help("Shuffle playlist").disabled(model.tracks.isEmpty)
                 if model.selectedID == "recent", !model.recentTracks.isEmpty {
@@ -286,6 +285,9 @@ struct TrackTable: View {
         .contextMenu(forSelectionType: String.self) { ids in
             let chosen = selected(ids)
             if !chosen.isEmpty {
+                if let track = chosen.first, chosen.count == 1, model.playback.canPlayRelated {
+                    Button("Play related") { model.perform { try await model.playback.playRelated(track) } }
+                }
                 if model.playback.canEditQueue {
                     Button("Play next") { model.perform { try await model.playback.enqueue(chosen, next: true) } }
                     Button("Add to queue") { model.perform { try await model.playback.enqueue(chosen, next: false) } }
