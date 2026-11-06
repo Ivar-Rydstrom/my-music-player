@@ -213,10 +213,14 @@ enum UpdateInstaller {
         if let expected = release.archiveSHA256, try sha256(of: archive) != expected {
             throw Failure("The download doesn't match the checksum GitHub published for it.")
         }
+        // The archive is untrusted until the signature check, so vet its listing before extracting:
+        // no absolute or `..` paths, no symlinks, and a single top-level app.
+        let appName = try UpdateArchive.validate(UpdateArchive.entries(in: Data(contentsOf: archive, options: .mappedIfSafe)))
         let expanded = archive.deletingLastPathComponent().appending(path: "Expanded")
+        try FileManager.default.createDirectory(at: expanded, withIntermediateDirectories: false)
         try run("/usr/bin/ditto", ["-x", "-k", archive.path, expanded.path])
-        let apps = try FileManager.default.contentsOfDirectory(at: expanded, includingPropertiesForKeys: nil).filter { $0.pathExtension == "app" }
-        guard apps.count == 1, let app = apps.first else { throw Failure("The download doesn't contain exactly one app.") }
+        let app = expanded.appending(path: appName)
+        try rejectSymlinks(in: expanded)
         let info = NSDictionary(contentsOf: app.appending(path: "Contents/Info.plist")) as? [String: Any] ?? [:]
         guard info["CFBundleIdentifier"] as? String == Bundle.main.bundleIdentifier else {
             throw Failure("The download is a different app (\(info["CFBundleIdentifier"] as? String ?? "no identifier")).")
@@ -227,6 +231,17 @@ enum UpdateInstaller {
         try verifySignature(of: app)
         try? run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", app.path])
         return app
+    }
+
+    /// Second check after extraction, in case the extractor created links the listing didn't show.
+    static func rejectSymlinks(in folder: URL) throws {
+        let keys: [URLResourceKey] = [.isSymbolicLinkKey]
+        guard let items = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: keys) else {
+            throw Failure("The expanded update couldn't be inspected.")
+        }
+        for case let item as URL in items where try item.resourceValues(forKeys: Set(keys)).isSymbolicLink == true {
+            throw Failure("The update contains a symbolic link: \(item.lastPathComponent)")
+        }
     }
 
     static func verifySignature(of app: URL) throws {
