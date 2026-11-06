@@ -6,6 +6,7 @@ import PlayerCore
 struct SettingsView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var store: ThemeStore
+    @ObservedObject var updater: AppUpdater
     @Environment(\.playerTheme) private var theme
     @State private var tab = ProcessInfo.processInfo.arguments.contains("--connect-music") ? "connection" : "appearance"
     var body: some View {
@@ -16,7 +17,8 @@ struct SettingsView: View {
                 Picker("Settings section", selection: $tab) {
                     Text("Appearance").tag("appearance")
                     Text("Connection").tag("connection")
-                }.pickerStyle(.segmented).labelsHidden().frame(width: 260)
+                    Text("Updates").tag("updates")
+                }.pickerStyle(.segmented).labelsHidden().frame(width: 360)
             }.padding(26)
             Divider()
             if tab == "appearance" {
@@ -62,6 +64,8 @@ struct SettingsView: View {
                         }
                     }.padding(28)
                 }
+            } else if tab == "updates" {
+                UpdateSettingsView(updater: updater)
             } else {
                 DiagnosticsView(model: model)
             }

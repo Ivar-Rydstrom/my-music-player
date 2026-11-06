@@ -1,0 +1,4 @@
+// Fallback version for local builds. Release builds take MARKETING_VERSION from the release tag
+// (v0.2.0 -> 0.2.0) and CURRENT_PROJECT_VERSION from the CI run number.
+MARKETING_VERSION = 0.1.0
+CURRENT_PROJECT_VERSION = 1
