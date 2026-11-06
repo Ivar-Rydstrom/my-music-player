@@ -240,6 +240,8 @@ final class PlaybackController: ObservableObject {
     }
     private func pollMusicApp() async {
         guard let musicApp else { return }
+        // A quit Music stays quit until the user plays something; polling would relaunch it.
+        guard MusicAppProcess.isRunning else { isPlaying = false; return }
         let token = generation
         do {
             let snapshot = try await musicApp.snapshot()
