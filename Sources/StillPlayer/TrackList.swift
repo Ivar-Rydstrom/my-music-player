@@ -30,38 +30,25 @@ enum TrackMetrics {
     static let actionsWidth: CGFloat = 78
     static let durationWidth: CGFloat = 40
     static let rowHeight: CGFloat = 30
-    static let horizontalInset: CGFloat = 10
-}
-
-/// Reports where row content actually sits inside the List (it may reserve room for a scroller),
-/// so the column header can line up with it exactly.
-struct RowFrameKey: PreferenceKey {
-    static let defaultValue: CGRect? = nil
-    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) { value = value ?? nextValue() }
+    static let horizontalInset: CGFloat = 12
+    /// Room under the last row so it clears the floating player.
+    static let bottomInset: CGFloat = 104
 }
 
 struct TrackListHeader: View {
     @Environment(\.playerTheme) private var theme
     @ObservedObject var workspace: Workspace
-    var rowFrame: CGRect?
     var body: some View {
-        GeometryReader { proxy in
-            let origin = proxy.frame(in: .global).minX
-            let frame = rowFrame.map { $0.offsetBy(dx: -origin, dy: 0) }
-                ?? CGRect(x: TrackMetrics.horizontalInset, y: 0, width: proxy.size.width - TrackMetrics.horizontalInset * 2, height: 26)
-            columns.padding(.horizontal, 8).frame(width: max(0, frame.width), height: 26).offset(x: frame.minX)
-        }.frame(height: 26)
-    }
-
-    private var columns: some View {
         TrackColumns {
             header("#", key: .number, alignment: .trailing).frame(width: TrackMetrics.numberWidth, alignment: .trailing)
-            header("Title", key: .title)
+            header("Title", key: .title).padding(.leading, 31)
             header("Artist", key: .artist)
             header("Album", key: .album)
             Color.clear.frame(width: TrackMetrics.actionsWidth, height: 1)
             header("Time", key: .duration, alignment: .trailing).frame(width: TrackMetrics.durationWidth, alignment: .trailing)
         }
+        .padding(.horizontal, 10)
+        .frame(height: 26)
     }
 
     private func header(_ title: String, key: SortKey, alignment: Alignment = .leading) -> some View {
@@ -72,7 +59,7 @@ struct TrackListHeader: View {
                 if active { Image(systemName: workspace.sort.ascending ? "chevron.up" : "chevron.down").font(.system(size: 8, weight: .bold)) }
             }
             .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(active ? theme.text : theme.muted)
+            .foregroundStyle(active ? theme.text : theme.muted.opacity(0.85))
             .frame(maxWidth: .infinity, alignment: alignment)
             .contentShape(Rectangle())
         }
@@ -81,37 +68,38 @@ struct TrackListHeader: View {
     }
 }
 
+/// A plain scrolling stack instead of `List`, so selection can be a theme-tinted rounded fill rather
+/// than the system's grey bar. Click, ⌘-click, ⇧-click, double-click and right-click behave like Finder.
 struct TrackList: View {
     @Environment(\.playerTheme) private var theme
     @ObservedObject var model: AppModel
     @ObservedObject var workspace: Workspace
     var rows: [TrackRowItem]
 
-    private var selection: Binding<Set<String>> {
-        Binding(get: { workspace.selection }, set: { workspace.selection = $0 })
-    }
-
     var body: some View {
+        let selection = workspace.selection
         ScrollViewReader { proxy in
-            List(rows, selection: selection) { row in
-                TrackRow(model: model, workspace: workspace, row: row, firstNumber: rows.first?.number ?? 0)
-                    .listRowInsets(EdgeInsets(top: 0, leading: TrackMetrics.horizontalInset, bottom: 0, trailing: TrackMetrics.horizontalInset))
-                    .listRowSeparator(.hidden)
-                    .id(row.id)
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { offset, row in
+                        let selected = selection.contains(row.id)
+                        TrackRow(model: model, workspace: workspace, row: row, selected: selected,
+                                 joinsAbove: selected && offset > 0 && selection.contains(rows[offset - 1].id),
+                                 joinsBelow: selected && offset + 1 < rows.count && selection.contains(rows[offset + 1].id))
+                            .id(row.id)
+                            .contextMenu {
+                                let targets = selection.contains(row.id) ? rows.filter { selection.contains($0.id) } : [row]
+                                TrackActionsMenu(model: model, tracks: targets.map(\.track)) { workspace.play(row: targets[0]) }
+                            }
+                    }
+                }
+                .padding(.horizontal, TrackMetrics.horizontalInset)
+                .padding(.bottom, TrackMetrics.bottomInset)
             }
-            .listStyle(.plain)
-            .environment(\.defaultMinListRowHeight, TrackMetrics.rowHeight)
-            .scrollContentBackground(.hidden)
-            .contextMenu(forSelectionType: String.self) { ids in
-                TrackActionsMenu(model: model, tracks: rows.filter { ids.contains($0.id) }.map(\.track), onPlay: {
-                    if let first = rows.first(where: { ids.contains($0.id) }) { workspace.play(row: first) }
-                })
-            } primaryAction: { ids in
-                if let first = rows.first(where: { ids.contains($0.id) }) { workspace.play(row: first) }
-            }
+            .scrollIndicators(.automatic)
             .onChange(of: workspace.scrollRequest) { _, target in
                 guard let target else { return }
-                proxy.scrollTo(target)
+                withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(target) }
                 workspace.scrollRequest = nil
             }
         }
@@ -156,7 +144,7 @@ struct AddToPlaylistMenu: View {
         Menu(title) { playlistButtons }
     }
     @ViewBuilder var playlistButtons: some View {
-        let targets = model.sortedPlaylists.filter(\.canAddTracks)
+        let targets = Workspace.alphabetical(model.playlists).filter(\.canAddTracks)
         if targets.isEmpty { Text("No editable playlists") }
         ForEach(targets) { playlist in
             Button(playlist.name) { model.perform { try await model.add(tracks, to: playlist) } }
@@ -169,7 +157,9 @@ struct TrackRow: View {
     @ObservedObject var model: AppModel
     @ObservedObject var workspace: Workspace
     var row: TrackRowItem
-    var firstNumber: Int
+    var selected: Bool
+    var joinsAbove: Bool
+    var joinsBelow: Bool
     @State private var hovering = false
 
     private var track: LibraryTrack { row.track }
@@ -192,13 +182,30 @@ struct TrackRow: View {
         }
         .font(.system(size: 13))
         .foregroundStyle(theme.muted)
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 10)
         .frame(height: TrackMetrics.rowHeight)
+        .background { rowBackground }
         .contentShape(Rectangle())
-        .background { if row.number == firstNumber { GeometryReader { Color.clear.preference(key: RowFrameKey.self, value: $0.frame(in: .global)) } } }
+        .onTapGesture(count: 2) { workspace.play(row: row) }
+        .simultaneousGesture(TapGesture().onEnded {
+            let flags = NSEvent.modifierFlags
+            workspace.click(row: row, command: flags.contains(.command), shift: flags.contains(.shift))
+        })
         .onHover { hovering = $0 }
+        .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(track.title), \(track.artist), \(track.album)\(isCurrent ? ", now playing" : "")")
+    }
+
+    /// Adjacent selected rows merge into one rounded block, like Finder's selection.
+    @ViewBuilder private var rowBackground: some View {
+        if selected {
+            UnevenRoundedRectangle(topLeadingRadius: joinsAbove ? 0 : 7, bottomLeadingRadius: joinsBelow ? 0 : 7,
+                                   bottomTrailingRadius: joinsBelow ? 0 : 7, topTrailingRadius: joinsAbove ? 0 : 7, style: .continuous)
+                .fill(theme.rowSelection)
+        } else if revealed {
+            RoundedRectangle(cornerRadius: 7, style: .continuous).fill(theme.rowHover)
+        }
     }
 
     @ViewBuilder private var numberCell: some View {
@@ -265,8 +272,8 @@ struct RowIconButton: View {
     }
 }
 
-/// Appears whenever more than one song is selected, so bulk actions don't hide behind right-click.
-/// Falls back to icon-only buttons (with tooltips) when the content column is narrow.
+/// Appears when two or more songs are selected: a glass capsule that drops in from the top of the
+/// content card, mirroring the player pill at the bottom. Icon-only when the card is narrow.
 struct SelectionBar: View {
     @Environment(\.playerTheme) private var theme
     @ObservedObject var model: AppModel
@@ -276,42 +283,70 @@ struct SelectionBar: View {
         ViewThatFits(in: .horizontal) {
             bar(tracks, compact: false)
             bar(tracks, compact: true)
-        }.padding(.horizontal, 12)
+        }.padding(.horizontal, 16)
     }
 
     private func bar(_ tracks: [LibraryTrack], compact: Bool) -> some View {
-        HStack(spacing: 6) {
-            Text("\(tracks.count) selected").font(.system(size: 13, weight: .semibold)).fixedSize().padding(.trailing, 6)
+        HStack(spacing: 4) {
+            Text("\(tracks.count) selected").font(.system(size: 12.5, weight: .semibold)).monospacedDigit().fixedSize()
+                .padding(.leading, 6).padding(.trailing, 8)
             Button { workspace.playSelection() } label: { Label("Play", systemImage: "play.fill") }
-                .buttonStyle(AccentButtonStyle()).help("Play selection (Return)").fixedSize()
-            if model.playback.canEditQueue {
-                Button { model.perform { try await model.playback.enqueue(tracks, next: true) } } label: {
-                    item("Play next", icon: "text.line.first.and.arrowtriangle.forward", compact: compact)
-                }.help("Play next")
-                Button { model.perform { try await model.playback.enqueue(tracks, next: false) } } label: {
-                    item("Add to queue", icon: "text.line.last.and.arrowtriangle.forward", compact: compact)
-                }.help("Add to queue")
+                .buttonStyle(SoftCapsuleStyle(prominent: true, compact: true)).help("Play selection (Return)")
+            if model.playback.canEditQueue && workspace.queueSupported {
+                PillAction(title: "Play next", icon: "text.line.first.and.arrowtriangle.forward", compact: compact) {
+                    model.perform { try await model.playback.enqueue(tracks, next: true) }
+                }
+                PillAction(title: "Add to queue", icon: "text.line.last.and.arrowtriangle.forward", compact: compact) {
+                    model.perform { try await model.playback.enqueue(tracks, next: false) }
+                }
             }
-            Menu { AddToPlaylistMenu(model: model, tracks: tracks).playlistButtons } label: {
-                item("Add to playlist", icon: "plus", compact: compact)
-            }.menuIndicator(compact ? .hidden : .visible).fixedSize().help("Add to playlist")
-            Button { favoriteAll(model: model, tracks: tracks) } label: { item("Favorite", icon: "star", compact: compact) }
-                .help("Favorite selected songs")
-            Divider().frame(height: 18).padding(.horizontal, 2)
-            Button { workspace.selection = [] } label: { Image(systemName: "xmark") }
-                .buttonStyle(.borderless).help("Clear selection (Esc)").accessibilityLabel("Clear selection")
+            PillAction(title: "Add to playlist…", icon: "text.badge.plus", compact: compact) {
+                workspace.openPalette()
+                workspace.palette.step = .addToPlaylist(tracks: tracks, label: tracks.count == 1 ? "“\(tracks[0].title)”" : "\(tracks.count) songs")
+            }
+            PillAction(title: "Favorite", icon: "star", compact: compact) { favoriteAll(model: model, tracks: tracks) }
+            Rectangle().fill(theme.text.opacity(0.12)).frame(width: 1, height: 18).padding(.horizontal, 4)
+            Button { workspace.selection = [] } label: {
+                Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).frame(width: 26, height: 26)
+                    .background(theme.text.opacity(0.07), in: Circle())
+            }
+            .buttonStyle(.plain).foregroundStyle(theme.muted).help("Clear selection (Esc)").accessibilityLabel("Clear selection")
         }
-        .font(.system(size: 13))
-        .padding(.leading, 14).padding(.trailing, 10).padding(.vertical, 8)
-        .background(theme.surface, in: RoundedRectangle(cornerRadius: 11))
-        .overlay(RoundedRectangle(cornerRadius: 11).stroke(theme.text.opacity(0.1)))
-        .shadow(color: .black.opacity(theme.isDark ? 0.4 : 0.12), radius: 14, y: 4)
+        .foregroundStyle(theme.text)
+        .padding(.leading, 8).padding(.trailing, 7).frame(height: 44)
+        .background(glassChrome(Capsule(), theme: theme))
         .fixedSize()
     }
+}
 
-    @ViewBuilder private func item(_ title: String, icon: String, compact: Bool) -> some View {
-        if compact { Image(systemName: icon).accessibilityLabel(title) } else { Label(title, systemImage: icon) }
+struct PillAction: View {
+    @Environment(\.playerTheme) private var theme
+    var title: String
+    var icon: String
+    var compact: Bool
+    var action: () -> Void
+    @State private var hovering = false
+    var body: some View {
+        Button(action: action) {
+            Group {
+                if compact { Image(systemName: icon) } else { Label(title, systemImage: icon) }
+            }
+            .font(.system(size: 12.5, weight: .medium))
+            .padding(.horizontal, compact ? 8 : 10).frame(height: 28)
+            .background(hovering ? theme.text.opacity(0.07) : .clear, in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain).help(title).accessibilityLabel(title)
+        .onHover { hovering = $0 }
     }
+}
+
+/// The frosted chrome shared by the player pill and the selection capsule.
+func glassChrome<S: InsettableShape>(_ shape: S, theme: PlayerTheme) -> some View {
+    shape.fill(.regularMaterial)
+        .overlay(shape.fill(theme.surface.opacity(theme.isDark ? 0.55 : 0.5)))
+        .overlay(shape.strokeBorder(theme.text.opacity(theme.isDark ? 0.10 : 0.07), lineWidth: 1))
+        .shadow(color: .black.opacity(theme.isDark ? 0.42 : 0.14), radius: 20, y: 8)
 }
 
 /// Accent-filled button that keeps its colour when the window is inactive, so Play never reads as disabled.

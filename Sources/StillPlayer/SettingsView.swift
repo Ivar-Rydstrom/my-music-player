@@ -8,7 +8,8 @@ struct SettingsView: View {
     @ObservedObject var store: ThemeStore
     @ObservedObject var updater: AppUpdater
     @Environment(\.playerTheme) private var theme
-    @State private var tab = ProcessInfo.processInfo.arguments.contains("--connect-music") ? "connection" : "appearance"
+    /// Remembered, so the palette's "Settings: Connection" (etc.) can open straight to a section.
+    @AppStorage("settings.tab") private var tab = ProcessInfo.processInfo.arguments.contains("--connect-music") ? "connection" : "appearance"
     var body: some View {
         VStack(spacing: 0) {
             HStack {

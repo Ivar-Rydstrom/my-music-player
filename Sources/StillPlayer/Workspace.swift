@@ -4,19 +4,6 @@ import AppKit
 import PlayerCore
 #endif
 
-/// Where the command bar looks. `.playlist` filters the open list in place; the others search.
-enum SearchScope: String, CaseIterable, Identifiable {
-    case playlist, library, catalog
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .playlist: "Playlist"
-        case .library: "Library"
-        case .catalog: "Catalog"
-        }
-    }
-}
-
 enum SortKey: String { case number, title, artist, album, duration }
 struct TrackSort: Equatable { var key: SortKey = .number; var ascending = true }
 
@@ -26,31 +13,41 @@ struct TrackRowItem: Identifiable, Equatable {
     let track: LibraryTrack
 }
 
-/// UI-only state for the main window: command bar, per-list filters/selection/sort, panels, and the
-/// window-level keyboard handling. Playback and library behaviour stay in `AppModel`.
+/// UI-only state for the main window: the Arc-style frame (sidebar, peek, history), the command
+/// palette, per-list filters/selection/sort, the floating player, and window-level keyboard handling.
+/// Playback and library behaviour stay in `AppModel`.
 @MainActor
 final class Workspace: ObservableObject {
     weak var model: AppModel?
     weak var window: NSWindow?
 
-    @Published var scope: SearchScope = .playlist
+    // Lists
     @Published var filters: [String: String] = [:]
-    @Published var libraryQuery = ""
     @Published var selections: [String: Set<String>] = [:]
     @Published var sorts: [String: TrackSort] = [:]
-    @Published var sidebarFilter = ""
-    @Published var showShortcuts = false
-    @Published var showQueue = UserDefaults.standard.object(forKey: "queue.visible") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(showQueue, forKey: "queue.visible") }
-    }
-    @Published var commandFocusRequest = 0
-    @Published var commandBlurRequest = 0
-    @Published var sidebarFilterRequest = 0
+    /// Non-nil while the content card shows "all results" for a palette search.
+    @Published var resultsQuery: String?
+    @Published var filterVisible = false
+    @Published var filterFocusRequest = 0
     @Published var scrollRequest: String?
-    @Published var commandHeld = false
-    var commandFocused = false
-    var sidebarFilterFocused = false
-    var caretToEndOnFocus = false
+    var filterFocused = false
+    private var anchorRow: String?
+
+    // Frame
+    @Published var sidebarCollapsed = UserDefaults.standard.bool(forKey: "sidebar.collapsed") {
+        didSet { UserDefaults.standard.set(sidebarCollapsed, forKey: "sidebar.collapsed") }
+    }
+    @Published var sidebarPeek = false
+    @Published private(set) var backStack: [String] = []
+    @Published private(set) var forwardStack: [String] = []
+
+    // Overlays
+    @Published var palette = PaletteState()
+    @Published var pillExpanded = false
+    /// The list the user last started playing from, so the sidebar can mark it.
+    @Published var playingListID: String?
+    @Published var showShortcuts = false
+
     var debugHoverRow: Int?
     var debugMusicAppLayout = false
     private var monitor: Any?
@@ -58,15 +55,13 @@ final class Workspace: ObservableObject {
     // MARK: Derived state
 
     var playlistKey: String { "playlist:" + (model?.selectedID ?? "none") }
-    var listKey: String { scope == .playlist ? playlistKey : "search" }
-    var isSearching: Bool { scope != .playlist }
-    var availableScopes: [SearchScope] { model?.usesMusicApp == true || debugMusicAppLayout ? [.playlist, .library] : SearchScope.allCases }
+    var listKey: String { resultsQuery == nil ? playlistKey : "search" }
+    var isShowingResults: Bool { resultsQuery != nil }
     var queueSupported: Bool { !(model?.usesMusicApp ?? false) && !debugMusicAppLayout }
-    var queueVisible: Bool { queueSupported && showQueue }
 
-    var queryText: String {
-        get { scope == .playlist ? filters[playlistKey] ?? "" : libraryQuery }
-        set { if scope == .playlist { filters[playlistKey] = newValue } else { libraryQuery = newValue } }
+    var filterText: String {
+        get { filters[playlistKey] ?? "" }
+        set { filters[playlistKey] = newValue }
     }
     var selection: Set<String> {
         get { selections[listKey] ?? [] }
@@ -77,10 +72,25 @@ final class Workspace: ObservableObject {
         set { sorts[listKey] = newValue }
     }
 
+    /// The name shown in the sidebar's address bar.
+    var contextTitle: String {
+        if let resultsQuery { return "Results for “\(resultsQuery)”" }
+        guard let model else { return "Still" }
+        return Workspace.title(for: model.selectedID, in: model)
+    }
+
+    static func title(for id: String?, in model: AppModel) -> String {
+        switch id {
+        case "recent": "Recently played"
+        case "favorites": "Favorites"
+        default: model.playlists.first { $0.id == id }?.name ?? "Your music"
+        }
+    }
+
     func rows() -> [TrackRowItem] {
         guard let model else { return [] }
-        let source = scope == .playlist ? model.tracks : model.searchResults
-        let query = scope == .playlist ? filters[playlistKey] ?? "" : ""
+        let source = resultsQuery == nil ? model.tracks : model.searchResults
+        let query = resultsQuery == nil ? filterText : ""
         let items = source.enumerated()
             .map { TrackRowItem(id: "\($0.offset):\($0.element.id)", number: $0.offset + 1, track: $0.element) }
             .filter { $0.track.matches(query) }
@@ -113,33 +123,40 @@ final class Workspace: ObservableObject {
         sort = next
     }
 
-    // MARK: Command bar
+    // MARK: Filter (⌘F)
 
-    func focusCommandBar(scope requested: SearchScope? = nil) {
-        if let requested { setScope(requested) }
-        commandFocusRequest += 1
+    func revealFilter() {
+        if resultsQuery != nil { resultsQuery = nil }
+        filterVisible = true
+        filterFocusRequest += 1
     }
 
-    func setScope(_ new: SearchScope) {
-        guard new != scope, availableScopes.contains(new) else { return }
-        if scope == .playlist, let text = filters[playlistKey], !text.isEmpty { libraryQuery = text }
-        scope = new
-    }
-
-    func cycleScope(forward: Bool) {
-        let scopes = availableScopes
-        guard let index = scopes.firstIndex(of: scope) else { setScope(.playlist); return }
-        setScope(scopes[(index + (forward ? 1 : scopes.count - 1)) % scopes.count])
-    }
-
-    /// Escape peels back one layer at a time: query, then search scope, then focus.
-    func escapeCommandBar() {
-        if !queryText.isEmpty { queryText = "" }
-        else if scope != .playlist { scope = .playlist }
-        else { commandBlurRequest += 1 }
+    /// Escape in the filter: clear the text first, then put the field away.
+    func escapeFilter() {
+        if !filterText.isEmpty { filterText = "" } else { filterVisible = false; window?.makeFirstResponder(nil) }
     }
 
     // MARK: Selection and playback
+
+    /// Click, ⌘-click and ⇧-click on a row, like a Finder list.
+    func click(row: TrackRowItem, command: Bool, shift: Bool) {
+        if shift, let anchor = anchorRow {
+            let rows = rows()
+            if let from = rows.firstIndex(where: { $0.id == anchor }), let to = rows.firstIndex(where: { $0.id == row.id }) {
+                let range = rows[min(from, to)...max(from, to)].map(\.id)
+                selection = command ? selection.union(range) : Set(range)
+                return
+            }
+        }
+        if command {
+            if selection.contains(row.id) { selection.remove(row.id) } else { selection.insert(row.id) }
+        } else {
+            selection = [row.id]
+        }
+        anchorRow = row.id
+    }
+
+    func selectAll() { selection = Set(rows().map(\.id)) }
 
     func moveSelection(_ delta: Int, extend: Bool = false) {
         let rows = rows()
@@ -148,6 +165,7 @@ final class Workspace: ObservableObject {
         let anchor = delta > 0 ? rows.lastIndex { current.contains($0.id) } : rows.firstIndex { current.contains($0.id) }
         let next = anchor.map { min(max($0 + delta, 0), rows.count - 1) } ?? (delta > 0 ? 0 : rows.count - 1)
         selection = extend ? current.union([rows[next].id]) : [rows[next].id]
+        if !extend { anchorRow = rows[next].id }
         scrollRequest = rows[next].id
     }
 
@@ -157,18 +175,38 @@ final class Workspace: ObservableObject {
         guard !rows.isEmpty else { return }
         let ids = selection
         let index = rows.firstIndex { ids.contains($0.id) } ?? 0
+        notePlaying()
         model.perform { try await model.playback.play(rows.map(\.track), at: index) }
+    }
+
+    private func notePlaying() { if resultsQuery == nil { playingListID = model?.selectedID } }
+
+    /// Opens the list a song came from and selects it there.
+    func reveal(_ track: LibraryTrack) {
+        guard let model else { return }
+        let target = track.sourcePlaylistID ?? playingListID
+            ?? model.playlists.first { $0.tracks.contains { $0.id == track.id } }?.id
+        guard let target else { return }
+        select(target)
+        Task {
+            await model.select(target)
+            if let row = rows().first(where: { $0.track.id == track.id }) {
+                selection = [row.id]; anchorRow = row.id; scrollRequest = row.id
+            }
+        }
     }
 
     func play(row: TrackRowItem) {
         guard let model else { return }
         let rows = rows()
         let index = rows.firstIndex { $0.id == row.id } ?? 0
+        notePlaying()
         model.perform { try await model.playback.play(rows.map(\.track), at: index) }
     }
 
     func playPlaylist(shuffled: Bool) {
         guard let model, !model.tracks.isEmpty else { return }
+        playingListID = model.selectedID
         model.perform {
             if shuffled { model.playback.shuffle = true }
             try await model.playback.playPlaylist(model.playlist, tracks: model.tracks)
@@ -177,20 +215,45 @@ final class Workspace: ObservableObject {
 
     // MARK: Navigation
 
-    /// Sidebar order: Recently played, Favorites, pinned playlists, other playlists.
+    /// Sidebar order: Recently played, Favorites, then playlists A–Z. Nothing is pinned first.
     var navigationOrder: [String] {
         guard let model else { return [] }
-        return ["recent", "favorites"] + model.sortedPlaylists.map(\.id)
-    }
-    var pinnedPlaylists: [MusicPlaylist] {
-        guard let model else { return [] }
-        return model.sortedPlaylists.filter { model.pinned.contains($0.id) }
+        return ["recent", "favorites"] + Workspace.alphabetical(model.playlists).map(\.id)
     }
 
+    nonisolated static func alphabetical(_ playlists: [MusicPlaylist]) -> [MusicPlaylist] {
+        playlists.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    /// Opens a list and records it in back/forward history, like a browser tab.
     func select(_ id: String) {
         guard let model else { return }
-        if scope != .playlist { scope = .playlist }
+        let current = model.selectedID
+        if resultsQuery != nil { resultsQuery = nil }
+        else if current == id { return }
+        if let current, current != id {
+            backStack.append(current)
+            if backStack.count > 50 { backStack.removeFirst() }
+            forwardStack = []
+        }
         Task { await model.select(id) }
+    }
+
+    var canGoBack: Bool { !backStack.isEmpty }
+    var canGoForward: Bool { !forwardStack.isEmpty }
+
+    func goBack() {
+        guard let model, let previous = backStack.popLast() else { return }
+        if let current = model.selectedID { forwardStack.append(current) }
+        resultsQuery = nil
+        Task { await model.select(previous) }
+    }
+
+    func goForward() {
+        guard let model, let next = forwardStack.popLast() else { return }
+        if let current = model.selectedID { backStack.append(current) }
+        resultsQuery = nil
+        Task { await model.select(next) }
     }
 
     func selectAdjacent(_ delta: Int) {
@@ -200,71 +263,97 @@ final class Workspace: ObservableObject {
         select(order[min(max(index + delta, 0), order.count - 1)])
     }
 
-    func selectPinned(_ number: Int) {
-        let pinned = pinnedPlaylists
-        guard pinned.indices.contains(number - 1) else { return }
-        select(pinned[number - 1].id)
+    func showResults(for query: String) {
+        resultsQuery = query
+        selections["search"] = []
     }
+
+    // MARK: Frame
+
+    func toggleSidebar() {
+        sidebarPeek = false
+        sidebarCollapsed.toggle()
+    }
+
+    // MARK: Palette
+
+    func openPalette(query: String = "") {
+        palette = PaletteState(isOpen: true, query: query)
+        pillExpanded = false
+    }
+
+    func closePalette() { palette.isOpen = false }
+
+    /// ⇧⌘P / ⌘K: open, or close again like Arc's command bar.
+    func togglePalette() { if palette.isOpen { closePalette() } else { openPalette() } }
 
     // MARK: Keyboard
 
     func installKeyMonitor() {
         guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
             nonisolated(unsafe) let event = event
             let consumed = MainActor.assumeIsolated { self?.handle(event) ?? false }
             return consumed ? nil : event
         }
     }
 
+    /// Set by the palette view: moves the highlight and runs the highlighted row.
+    var paletteKeys: ((PaletteKey) -> Void)?
+
     private func handle(_ event: NSEvent) -> Bool {
-        guard let window, event.window === window, window.attachedSheet == nil else {
-            if event.type == .flagsChanged, commandHeld { commandHeld = false }
-            return false
-        }
+        guard let window, event.window === window, window.attachedSheet == nil else { return false }
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
-        if event.type == .flagsChanged {
-            let held = flags == .command
-            if held != commandHeld { commandHeld = held }
-            return false
-        }
         let editing = window.firstResponder is NSTextView
         let key = event.keyCode
+
+        if palette.isOpen {
+            switch key {
+            case 125 where flags.isEmpty: paletteKeys?(.down); return true
+            case 126 where flags.isEmpty: paletteKeys?(.up); return true
+            case 36, 76: paletteKeys?(.run); return true
+            case 53: paletteKeys?(.escape); return true
+            case 48: paletteKeys?(flags == .shift ? .up : .down); return true
+            default: return false
+            }
+        }
 
         if showShortcuts {
             if key == 53 || (event.charactersIgnoringModifiers == "?" && !editing) { showShortcuts = false; return true }
             return false
         }
 
-        if editing && commandFocused {
+        if editing && filterFocused {
             switch key {
             case 125 where flags.isEmpty || flags == .shift: moveSelection(1, extend: flags == .shift); return true
             case 126 where flags.isEmpty || flags == .shift: moveSelection(-1, extend: flags == .shift); return true
-            case 48 where flags.isEmpty || flags == .shift: cycleScope(forward: flags != .shift); return true
-            case 36 where flags.isEmpty, 76 where flags.isEmpty: playSelection(); return true
-            case 53: escapeCommandBar(); return true
+            case 36 where flags.isEmpty, 76 where flags.isEmpty:
+                if selection.isEmpty { moveSelection(1) }
+                playSelection(); return true
+            case 53: escapeFilter(); return true
             default: return false
             }
         }
-        if editing {
-            if key == 53 && sidebarFilterFocused { sidebarFilter = ""; window.makeFirstResponder(nil); return true }
-            return false
-        }
+        if editing { return false }
 
         // Nothing is being typed into.
-        let inList = window.firstResponder is NSTableView
         switch key {
         case 53 where flags.isEmpty:
+            if pillExpanded { pillExpanded = false; return true }
             if !selection.isEmpty { selection = []; return true }
-            if scope != .playlist { scope = .playlist; return true }
+            if resultsQuery != nil { resultsQuery = nil; return true }
+            if filterVisible { escapeFilter(); return true }
+            if sidebarPeek { sidebarPeek = false; return true }
             return false
         case 36 where flags.isEmpty && !selection.isEmpty, 76 where flags.isEmpty && !selection.isEmpty:
             playSelection(); return true
-        case 125 where !inList && (flags.isEmpty || flags == .shift), 126 where !inList && (flags.isEmpty || flags == .shift):
+        case 125 where flags.isEmpty || flags == .shift, 126 where flags.isEmpty || flags == .shift:
             moveSelection(key == 125 ? 1 : -1, extend: flags == .shift); return true
+        case 0 where flags == .command:
+            selectAll(); return true
         default: break
         }
-        // Space plays/pauses only when it isn't being typed, so the command bar never loses spaces.
+        // Space plays/pauses only when it isn't being typed.
         if key == 49 && flags.isEmpty {
             if let model, model.playback.current != nil { model.perform { try await model.playback.toggle() } }
             return true
@@ -272,25 +361,13 @@ final class Workspace: ObservableObject {
         if event.charactersIgnoringModifiers == "?" && flags.subtracting(.shift).isEmpty {
             showShortcuts = true; return true
         }
-        // Type anywhere to find: printable characters go to the command bar.
+        // Type anywhere: printable characters open the palette with what you typed.
         if flags.subtracting(.shift).isEmpty, let typed = event.characters, typed.count == 1,
            let scalar = typed.unicodeScalars.first, CharacterSet.alphanumerics.contains(scalar) {
-            queryText += typed
-            caretToEndOnFocus = true
-            focusCommandBar()
+            openPalette(query: typed)
             return true
         }
         return false
-    }
-
-    /// After focus moves into the command bar from type-to-find, AppKit selects the whole field.
-    /// Put the caret at the end so the next keystroke appends instead of replacing.
-    func placeCaretAtEndIfNeeded() {
-        guard caretToEndOnFocus else { return }
-        caretToEndOnFocus = false
-        DispatchQueue.main.async { [weak self] in
-            (self?.window?.firstResponder as? NSTextView)?.moveToEndOfDocument(nil)
-        }
     }
 }
 

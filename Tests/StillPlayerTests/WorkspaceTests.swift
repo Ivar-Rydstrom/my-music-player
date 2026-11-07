@@ -16,7 +16,7 @@ import PlayerCore
 
     func testTypingFiltersTheOpenPlaylistInPlace() {
         XCTAssertEqual(workspace.rows().count, 12)
-        workspace.queryText = "frank"
+        workspace.filterText = "frank"
         XCTAssertEqual(workspace.rows().map(\.track.title), ["Pink + White", "Nights"])
         XCTAssertEqual(workspace.rows().map(\.number), [11, 12], "Rows keep their playlist position")
         XCTAssertEqual(workspace.filters["playlist:demo-focus"], "frank")
@@ -31,41 +31,37 @@ import PlayerCore
         XCTAssertEqual(workspace.rows().first?.number, 1)
     }
 
-    func testTabCarriesThePlaylistFilterIntoLibrarySearch() {
-        workspace.queryText = "frank"
-        workspace.cycleScope(forward: true)
-        XCTAssertEqual(workspace.scope, .library)
-        XCTAssertEqual(workspace.queryText, "frank")
-        workspace.cycleScope(forward: true)
-        XCTAssertEqual(workspace.scope, .catalog)
-        workspace.cycleScope(forward: true)
-        XCTAssertEqual(workspace.scope, .playlist)
-        XCTAssertEqual(workspace.queryText, "frank", "Going back keeps the playlist's own filter")
-    }
-
-    func testMusicAppModeHasNoCatalogScope() {
+    func testMusicAppModeHasNoQueue() {
+        XCTAssertTrue(workspace.queueSupported)
         workspace.debugMusicAppLayout = true
-        XCTAssertEqual(workspace.availableScopes, [.playlist, .library])
         XCTAssertFalse(workspace.queueSupported)
-        workspace.setScope(.catalog)
-        XCTAssertEqual(workspace.scope, .playlist)
     }
 
-    func testEscapePeelsBackOneLayerAtATime() {
-        workspace.setScope(.library)
-        workspace.queryText = "nights"
-        workspace.escapeCommandBar()
-        XCTAssertEqual(workspace.queryText, "")
-        XCTAssertEqual(workspace.scope, .library)
-        workspace.escapeCommandBar()
-        XCTAssertEqual(workspace.scope, .playlist)
-        let blur = workspace.commandBlurRequest
-        workspace.escapeCommandBar()
-        XCTAssertEqual(workspace.commandBlurRequest, blur + 1)
+    func testEscapeInTheFilterClearsThenHides() {
+        workspace.revealFilter()
+        XCTAssertTrue(workspace.filterVisible)
+        workspace.filterText = "nights"
+        workspace.escapeFilter()
+        XCTAssertEqual(workspace.filterText, "")
+        XCTAssertTrue(workspace.filterVisible)
+        workspace.escapeFilter()
+        XCTAssertFalse(workspace.filterVisible)
+    }
+
+    func testClickCommandClickAndShiftClickSelectLikeFinder() {
+        let rows = workspace.rows()
+        workspace.click(row: rows[1], command: false, shift: false)
+        XCTAssertEqual(workspace.selection, [rows[1].id])
+        workspace.click(row: rows[4], command: false, shift: true)
+        XCTAssertEqual(workspace.selection, Set(rows[1...4].map(\.id)))
+        workspace.click(row: rows[2], command: true, shift: false)
+        XCTAssertEqual(workspace.selection, Set([rows[1], rows[3], rows[4]].map(\.id)))
+        workspace.selectAll()
+        XCTAssertEqual(workspace.selection.count, rows.count)
     }
 
     func testArrowKeysMoveAndExtendTheSelection() {
-        workspace.queryText = "o"
+        workspace.filterText = "o"
         let rows = workspace.rows()
         workspace.moveSelection(1)
         XCTAssertEqual(workspace.selection, [rows[0].id])
@@ -90,16 +86,38 @@ import PlayerCore
         XCTAssertEqual(workspace.selection, first)
     }
 
-    func testCommandNumberJumpsToPinnedPlaylistsInSidebarOrder() async throws {
-        XCTAssertEqual(workspace.pinnedPlaylists.map(\.id), ["demo-evening", "demo-focus"])
-        workspace.selectPinned(1)
-        try await Task.sleep(for: .milliseconds(50))
-        XCTAssertEqual(model.selectedID, "demo-evening")
-        workspace.selectPinned(9)
-        try await Task.sleep(for: .milliseconds(50))
-        XCTAssertEqual(model.selectedID, "demo-evening", "Missing pins are ignored")
+    func testPlaylistsAreAlphabeticalWithNothingPinnedFirst() {
+        // "demo-focus" and "demo-evening" are pinned in the persisted data; the UI ignores that.
+        XCTAssertEqual(workspace.navigationOrder,
+                       ["recent", "favorites", "demo-evening", "demo-focus", "demo-repeat", "demo-drive"])
+    }
+
+    func testBackAndForwardWalkTheHistoryOfViewedLists() async throws {
+        workspace.select("demo-drive")
+        try await Task.sleep(for: .milliseconds(30))
+        workspace.select("favorites")
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertTrue(workspace.canGoBack)
+        workspace.goBack()
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertEqual(model.selectedID, "demo-drive")
+        workspace.goBack()
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertEqual(model.selectedID, "demo-focus")
+        XCTAssertFalse(workspace.canGoBack)
+        workspace.goForward()
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertEqual(model.selectedID, "demo-drive")
+        workspace.select("recent")
+        XCTAssertFalse(workspace.canGoForward, "Opening something new drops the forward history")
+    }
+
+    func testAdjacentPlaylistFollowsSidebarOrder() async throws {
         workspace.selectAdjacent(-1)
-        try await Task.sleep(for: .milliseconds(50))
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertEqual(model.selectedID, "demo-evening")
+        workspace.selectAdjacent(-1)
+        try await Task.sleep(for: .milliseconds(30))
         XCTAssertEqual(model.selectedID, "favorites")
     }
 }

@@ -8,7 +8,7 @@ struct StillPlayerApp: App {
     @StateObject private var workspace = Workspace()
     var body: some Scene {
         WindowGroup {
-            ContentView(model: model, workspace: workspace)
+            ContentView(model: model, workspace: workspace, themes: themes, updater: updater)
                 .frame(minWidth: 980, minHeight: 650)
                 .modifier(Themed(store: themes))
                 .modifier(UpdatePrompt(updater: updater))
@@ -24,26 +24,24 @@ struct StillPlayerApp: App {
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .newItem) {}
+            CommandGroup(replacing: .saveItem) {}
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") { Task { await updater.check(userInitiated: true) } }.disabled(updater.isBusy)
             }
-            CommandGroup(after: .textEditing) {
-                Divider()
-                Button("Find…") { workspace.focusCommandBar() }.keyboardShortcut("k", modifiers: [.command])
-                Button("Search Library…") { workspace.focusCommandBar(scope: .library) }.keyboardShortcut("k", modifiers: [.command, .shift])
-                Button("Filter Playlists…") { workspace.sidebarFilterRequest += 1 }.keyboardShortcut("f", modifiers: [.command, .option])
+            CommandGroup(replacing: .textEditing) {
+                Button("Command Palette…") { workspace.togglePalette() }.keyboardShortcut("p", modifiers: [.command, .shift])
+                Button("Search…") { workspace.togglePalette() }.keyboardShortcut("k", modifiers: [.command])
+                Button("Filter This Playlist") { workspace.revealFilter() }.keyboardShortcut("f", modifiers: [.command])
             }
             CommandMenu("Go") {
+                Button("Back") { workspace.goBack() }.keyboardShortcut("[", modifiers: [.command]).disabled(!workspace.canGoBack)
+                Button("Forward") { workspace.goForward() }.keyboardShortcut("]", modifiers: [.command]).disabled(!workspace.canGoForward)
+                Divider()
                 Button("Recently Played") { workspace.select("recent") }
                 Button("Favorites") { workspace.select("favorites") }
                 Divider()
                 Button("Previous Playlist") { workspace.selectAdjacent(-1) }.keyboardShortcut(.upArrow, modifiers: [.command, .option])
                 Button("Next Playlist") { workspace.selectAdjacent(1) }.keyboardShortcut(.downArrow, modifiers: [.command, .option])
-                Divider()
-                ForEach(Array(model.sortedPlaylists.filter { model.pinned.contains($0.id) }.prefix(9).enumerated()), id: \.element.id) { offset, playlist in
-                    Button(playlist.name) { workspace.select(playlist.id) }
-                        .keyboardShortcut(KeyEquivalent(Character("\(offset + 1)")), modifiers: [.command])
-                }
             }
             CommandMenu("Playback") {
                 Button("Play / Pause") { model.perform { try await model.playback.toggle() } }.keyboardShortcut("p", modifiers: [.command])
@@ -64,8 +62,12 @@ struct StillPlayerApp: App {
                 Button("Refresh Library") { model.perform { await model.refresh() } }.keyboardShortcut("r", modifiers: [.command])
             }
             CommandGroup(after: .sidebar) {
-                Button(workspace.showQueue ? "Hide Queue" : "Show Queue") { workspace.showQueue.toggle() }
-                    .keyboardShortcut("u", modifiers: [.command, .shift]).disabled(!workspace.queueSupported)
+                Button(workspace.sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar") {
+                    withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) { workspace.toggleSidebar() }
+                }.keyboardShortcut("s", modifiers: [.command])
+                Button(workspace.pillExpanded ? "Collapse Player" : (workspace.queueSupported ? "Expand Player and Queue" : "Expand Player")) {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { workspace.pillExpanded.toggle() }
+                }.keyboardShortcut("u", modifiers: [.command, .shift])
             }
             CommandGroup(replacing: .help) {
                 Button("Keyboard Shortcuts") { workspace.showShortcuts.toggle() }.keyboardShortcut("/", modifiers: [.command])

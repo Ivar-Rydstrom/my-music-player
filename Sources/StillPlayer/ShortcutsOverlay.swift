@@ -10,16 +10,14 @@ struct ShortcutsOverlay: View {
         var playback = [("Play / pause", "Space  ⌘P"), ("Next / previous song", "⌘→  ⌘←"), ("Play playlist", "⌘↩"),
                         ("Shuffle playlist", "⇧⌘↩"), ("Favorite current song", "⌘L")]
         if musicVolume { playback.append(("Music volume", "⌘↑  ⌘↓")) }
-        var view = [("Keyboard shortcuts", "?  ⌘/"), ("Settings", "⌘,"), ("Refresh library", "⌘R")]
-        if queueSupported { view.insert(("Show or hide queue", "⇧⌘U"), at: 0) }
         return [
-            ("Find", [("Find in playlist or library", "⌘K"), ("Search library", "⇧⌘K"), ("Switch scope", "Tab"),
-                      ("Move through results", "↑  ↓"), ("Play result", "↩"), ("Clear, then go back", "esc"),
-                      ("Start typing anywhere", "a–z")]),
-            ("Go", [("Pinned playlist 1–9", "⌘1 … ⌘9"), ("Next / previous playlist", "⌥⌘↓  ⌥⌘↑"), ("Filter playlists", "⌥⌘F")]),
+            ("Palette", [("Search and commands", "⇧⌘P  ⌘K"), ("Start typing anywhere", "a–z"), ("Move / run", "↑  ↓  ↩"),
+                         ("Back a step, then close", "esc")]),
+            ("Go", [("Back / forward", "⌘[  ⌘]"), ("Next / previous playlist", "⌥⌘↓  ⌥⌘↑"), ("Filter this playlist", "⌘F")]),
             ("Songs", [("Play selected", "↩"), ("Extend selection", "⇧↑  ⇧↓"), ("Select all", "⌘A"), ("Clear selection", "esc")]),
             ("Playback", playback),
-            ("Window", view)
+            ("Window", [("Hide / show sidebar", "⌘S"), (queueSupported ? "Expand player and queue" : "Expand player", "⇧⌘U"),
+                        ("Keyboard shortcuts", "?  ⌘/"), ("Settings", "⌘,"), ("Refresh library", "⌘R")])
         ]
     }
 
@@ -37,12 +35,12 @@ struct ShortcutsOverlay: View {
                     column(Array(groups.prefix(3)))
                     column(Array(groups.dropFirst(3)))
                 }
-                Text("Buttons with a shortcut show it in their tooltip.").font(.system(size: 12)).foregroundStyle(theme.muted)
+                Text("Every command is also in the palette (⇧⌘P), with its shortcut beside it.").font(.system(size: 12)).foregroundStyle(theme.muted)
             }
             .padding(24)
             .frame(width: 640)
-            .background(theme.background, in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(theme.text.opacity(0.1)))
+            .background(theme.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(theme.text.opacity(0.08)))
             .shadow(color: .black.opacity(0.3), radius: 30, y: 10)
         }
         .accessibilityAddTraits(.isModal)

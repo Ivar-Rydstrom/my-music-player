@@ -3,218 +3,277 @@ import SwiftUI
 import PlayerCore
 #endif
 
-/// One row: now playing, transport, scrubber, and the few secondary controls.
-struct PlayerBar: View {
+/// The player floats over the content as a pill. Clicking it (or ⇧⌘U) opens a fuller panel with
+/// volume, sleep timer, favorite, and — where the backend allows it — the queue.
+struct FloatingPlayer: View {
     @Environment(\.playerTheme) private var theme
     @ObservedObject var model: AppModel
     @ObservedObject var player: PlaybackController
     @ObservedObject var workspace: Workspace
+    @Namespace private var space
     @State private var seekDraft = 0.0
     @State private var seeking = false
     @State private var volumeDraft = 50.0
     @State private var changingVolume = false
+    private var expanded: Bool { workspace.pillExpanded }
+    /// The debug Music.app layout shows the real volume slider and no queue, as Music.app mode does.
+    private var isMusicApp: Bool { player.isMusicApp || workspace.debugMusicAppLayout }
+    private var showsQueue: Bool { workspace.queueSupported && player.canEditQueue }
 
     var body: some View {
-        HStack(spacing: 18) {
-            nowPlaying.frame(width: 236, alignment: .leading)
-            transport
-            scrubber
-            trailing
+        ZStack(alignment: .bottom) {
+            if expanded {
+                Color.black.opacity(theme.isDark ? 0.28 : 0.10)
+                    .contentShape(Rectangle())
+                    .onTapGesture { toggle() }
+                    .padding(.bottom, -16)
+                    .transition(.opacity)
+                panel.transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.96, anchor: .bottom)),
+                                             removal: .opacity))
+            } else {
+                pill.transition(.opacity)
+            }
         }
-        .padding(.horizontal, 16).frame(height: 54)
-        .background(theme.surface)
+        .padding(.bottom, 16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .onAppear { seekDraft = player.progress; volumeDraft = player.volume }
         .onChange(of: player.current?.id) { _, _ in seekDraft = min(player.progress, max(player.current?.duration ?? 0, 1)) }
         .onChange(of: player.progress) { _, value in if !seeking { seekDraft = min(value, max(player.current?.duration ?? 0, 1)) } }
         .onChange(of: player.volume) { _, value in if !changingVolume { volumeDraft = value } }
     }
 
-    private var nowPlaying: some View {
-        HStack(spacing: 10) {
-            Artwork(url: player.current?.artwork, seed: player.current?.album ?? "Still", size: 36, cornerRadius: 5)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(player.current?.title ?? "Nothing playing").font(.system(size: 13, weight: .medium)).lineLimit(1)
-                Text(player.current.map { "\($0.artist) — \($0.album)" } ?? "Double-click a song, or press Return")
-                    .font(.system(size: 12)).foregroundStyle(theme.muted).lineLimit(1)
+    private func toggle() { withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { workspace.pillExpanded.toggle() } }
+
+    // MARK: Collapsed pill
+
+    private var pill: some View {
+        HStack(spacing: 14) {
+            Artwork(url: player.current?.artwork, seed: player.current?.album ?? "Still", size: 44, cornerRadius: 22)
+                .matchedGeometryEffect(id: "art", in: space)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(player.current?.title ?? "Nothing playing").font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                Text(player.current?.artist ?? "Pick a playlist to begin").font(.system(size: 12)).foregroundStyle(theme.muted).lineLimit(1)
             }
-            Spacer(minLength: 0)
-            if let current = player.current {
-                let favorite = model.favorites.contains(current.id)
-                RowIconButton(symbol: favorite ? "star.fill" : "star", tint: favorite ? theme.accent : theme.muted,
-                              help: favorite ? "Remove from favorites (⌘L)" : "Favorite current song (⌘L)") {
-                    model.perform { try await model.favorite(current) }
+            .frame(width: 150, alignment: .leading)
+            HStack(spacing: 16) {
+                Button { model.perform { try await player.previous() } } label: { Image(systemName: "backward.fill") }
+                    .accessibilityLabel("Previous track")
+                playButton(size: 36)
+                Button { model.perform { try await player.next() } } label: { Image(systemName: "forward.fill") }
+                    .accessibilityLabel("Next track")
+            }
+            .font(.system(size: 14)).disabled(player.current == nil)
+            seekBar.frame(minWidth: 150, maxWidth: 230)
+            Button(action: toggle) { Image(systemName: "chevron.up").font(.system(size: 12, weight: .semibold)) }
+                .foregroundStyle(theme.muted)
+                .help(showsQueue ? "Show player and queue (⇧⌘U)" : "Show player (⇧⌘U)")
+                .accessibilityLabel("Expand player")
+        }
+        .buttonStyle(.plain)
+        .padding(.leading, 9).padding(.trailing, 20).frame(height: 62)
+        .background(glassChrome(Capsule(), theme: theme))
+        .contentShape(Capsule())
+        .onTapGesture(perform: toggle)
+        .frame(maxWidth: 660)
+        .padding(.horizontal, 24)
+    }
+
+    // MARK: Expanded panel
+
+    private var panel: some View {
+        HStack(alignment: .top, spacing: 0) {
+            nowPlaying.frame(width: 340)
+            if showsQueue {
+                Divider().padding(.vertical, 22)
+                queue.frame(width: 320)
+            }
+        }
+        .frame(height: showsQueue ? 470 : nil)
+        .background(glassChrome(RoundedRectangle(cornerRadius: 26, style: .continuous), theme: theme))
+    }
+
+    private var nowPlaying: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Now playing").font(.system(size: 12, weight: .semibold)).foregroundStyle(theme.muted)
+                Spacer()
+                Button(action: toggle) { Image(systemName: "chevron.down").font(.system(size: 12, weight: .semibold)) }
+                    .buttonStyle(.plain).foregroundStyle(theme.muted)
+                    .help("Collapse (Esc or ⇧⌘U)").accessibilityLabel("Collapse player")
+            }
+            .padding(.bottom, 14)
+            Artwork(url: player.current?.artwork, seed: player.current?.album ?? "Still", size: 170, cornerRadius: 12)
+                .matchedGeometryEffect(id: "art", in: space)
+                .shadow(color: .black.opacity(0.22), radius: 16, y: 8)
+                .padding(.bottom, 18)
+            HStack(alignment: .center, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(player.current?.title ?? "Nothing playing").font(.system(size: 17, weight: .semibold)).lineLimit(1)
+                    Text(player.current.map { "\($0.artist) · \($0.album)" } ?? "Pick a playlist to begin")
+                        .font(.system(size: 13)).foregroundStyle(theme.muted).lineLimit(1)
                 }
+                Spacer(minLength: 0)
+                if let current = player.current {
+                    Button { model.perform { try await model.favorite(current) } } label: {
+                        Image(systemName: model.favorites.contains(current.id) ? "star.fill" : "star").font(.system(size: 16))
+                    }
+                    .buttonStyle(.plain).foregroundStyle(theme.accent)
+                    .help(model.favorites.contains(current.id) ? "Remove from favorites" : "Favorite song")
+                    .accessibilityLabel(model.favorites.contains(current.id) ? "Remove from favorites" : "Favorite song")
+                }
+            }
+            .padding(.bottom, 12)
+            seekBar.padding(.bottom, 14)
+            HStack(spacing: 0) {
+                Button { player.shuffle.toggle(); player.applyModes() } label: {
+                    Image(systemName: "shuffle").foregroundStyle(player.shuffle ? theme.accent : theme.muted)
+                }.help("Shuffle").accessibilityLabel("Shuffle")
+                Spacer()
+                Button { model.perform { try await player.previous() } } label: { Image(systemName: "backward.fill").font(.system(size: 18)) }
+                    .accessibilityLabel("Previous track")
+                Spacer()
+                playButton(size: 50)
+                Spacer()
+                Button { model.perform { try await player.next() } } label: { Image(systemName: "forward.fill").font(.system(size: 18)) }
+                    .accessibilityLabel("Next track")
+                Spacer()
+                Button { player.repeatAll.toggle(); player.applyModes() } label: {
+                    Image(systemName: "repeat").foregroundStyle(player.repeatAll ? theme.accent : theme.muted)
+                }.help("Repeat").accessibilityLabel("Repeat")
+            }
+            .buttonStyle(.plain).font(.system(size: 14)).disabled(player.current == nil)
+            .padding(.horizontal, 6).padding(.bottom, 18)
+            HStack(spacing: 10) {
+                if isMusicApp {
+                    Image(systemName: "speaker.fill").foregroundStyle(theme.muted).font(.system(size: 11))
+                    Slider(value: $volumeDraft, in: 0...100) { editing in
+                        changingVolume = editing
+                        if !editing { player.setVolume(volumeDraft) }
+                    }.controlSize(.small).accessibilityLabel("Music volume")
+                    Image(systemName: "speaker.wave.3.fill").foregroundStyle(theme.muted).font(.system(size: 11))
+                } else {
+                    Button {
+                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Sound-Settings.extension")!)
+                    } label: { Label("Sound settings", systemImage: "speaker.wave.2") }
+                        .buttonStyle(.plain).foregroundStyle(theme.muted).font(.system(size: 12))
+                        .help("Volume follows your Mac's output").accessibilityLabel("System sound settings")
+                    Spacer()
+                }
+                sleepMenu.padding(.leading, 8)
+            }
+        }
+        .padding(24)
+    }
+
+    private var queue: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Up next").font(.system(size: 12, weight: .semibold)).foregroundStyle(theme.muted)
+                Spacer()
+                if !player.upcoming.isEmpty {
+                    Button("Clear") { player.clearUpcoming() }.buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(theme.accent)
+                        .help("Clear upcoming songs")
+                }
+            }
+            .padding(.horizontal, 24).padding(.top, 24).padding(.bottom, 10)
+            if player.upcoming.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Nothing queued").font(.system(size: 13, weight: .medium))
+                    Text("Play a playlist, or use a song's ⋯ menu to add it here.").font(.system(size: 12)).foregroundStyle(theme.muted)
+                }
+                .padding(.horizontal, 24).padding(.top, 8)
+                Spacer()
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 2) {
+                        ForEach(Array(player.upcoming.enumerated()), id: \.element.id) { offset, entry in
+                            PillQueueRow(player: player, entry: entry, offset: offset, count: player.upcoming.count)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                }
+                Text("\(player.upcoming.count) songs · \(Int(player.upcoming.reduce(0) { $0 + $1.track.duration } / 60)) min")
+                    .font(.system(size: 12)).foregroundStyle(theme.muted).padding(.horizontal, 24).padding(.vertical, 14)
             }
         }
     }
 
-    private var transport: some View {
-        HStack(spacing: 4) {
-            BarButton(symbol: "shuffle", active: player.shuffle, help: "Shuffle") { player.shuffle.toggle(); player.applyModes() }
-            BarButton(symbol: "backward.fill", help: "Previous (⌘←)") { model.perform { try await player.previous() } }
-            Button { model.perform { try await player.toggle() } } label: {
-                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 13)).foregroundStyle(theme.buttonInk)
-                    .frame(width: 30, height: 30).background(theme.accent, in: Circle())
-            }
-            .buttonStyle(.plain)
-            .help(player.isPlaying ? "Pause (Space)" : "Play (Space)").accessibilityLabel(player.isPlaying ? "Pause" : "Play")
-            .padding(.horizontal, 4)
-            BarButton(symbol: "forward.fill", help: "Next (⌘→)") { model.perform { try await player.next() } }
-            BarButton(symbol: "repeat", active: player.repeatAll, help: "Repeat") { player.repeatAll.toggle(); player.applyModes() }
-        }.disabled(player.current == nil)
+    // MARK: Pieces
+
+    private func playButton(size: CGFloat) -> some View {
+        Button { model.perform { try await player.toggle() } } label: {
+            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: size * 0.4)).foregroundStyle(theme.buttonInk)
+                .frame(width: size, height: size).background(theme.accent, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(player.current == nil)
+        .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
     }
 
-    private var scrubber: some View {
+    private var seekBar: some View {
         HStack(spacing: 8) {
-            Text(clockText(seeking ? seekDraft : player.progress)).frame(width: 36, alignment: .trailing)
+            Text(clockText(seeking ? seekDraft : player.progress)).frame(width: 32, alignment: .trailing)
             Slider(value: $seekDraft, in: 0...max(player.current?.duration ?? 0, 1)) { editing in
                 seeking = editing
                 if !editing { player.seek(seekDraft) }
             }
-            .controlSize(.small).disabled(player.current == nil).accessibilityLabel("Playback position")
-            Text(clockText(player.current?.duration ?? 0)).frame(width: 36, alignment: .leading)
+            .controlSize(.mini).disabled(player.current == nil).accessibilityLabel("Playback position")
+            Text(clockText(player.current?.duration ?? 0)).frame(width: 32, alignment: .leading)
         }
         .font(.system(size: 11)).monospacedDigit().foregroundStyle(theme.muted)
-        .frame(minWidth: 160, maxWidth: .infinity)
     }
 
-    private var trailing: some View {
-        HStack(spacing: 4) {
-            if player.isMusicApp {
-                Image(systemName: "speaker.wave.2").font(.system(size: 12)).foregroundStyle(theme.muted)
-                Slider(value: $volumeDraft, in: 0...100) { editing in
-                    changingVolume = editing
-                    if !editing { player.setVolume(volumeDraft) }
-                }.frame(width: 76).controlSize(.small).accessibilityLabel("Music volume").help("Music volume (⌘↑ ⌘↓)")
-                    .padding(.trailing, 4)
-            } else {
-                BarButton(symbol: "speaker.wave.2", help: "Open system sound settings") {
-                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Sound-Settings.extension")!)
-                }
+    private var sleepMenu: some View {
+        Menu {
+            Text("Pause playback after")
+            ForEach([15, 30, 45, 60], id: \.self) { minutes in
+                Button("\(minutes) minutes") { player.setSleepTimer(minutes: minutes) }
             }
-            Menu {
-                Text("Pause playback after")
-                ForEach([15, 30, 45, 60], id: \.self) { minutes in
-                    Button("\(minutes) minutes") { player.setSleepTimer(minutes: minutes) }
-                }
-                if let deadline = player.sleepUntil {
-                    Divider()
-                    Text("Pauses at \(deadline.formatted(date: .omitted, time: .shortened))")
-                    Button("Cancel sleep timer") { player.setSleepTimer(minutes: nil) }
-                }
-            } label: {
-                Image(systemName: player.sleepUntil == nil ? "moon" : "moon.zzz.fill")
-                    .foregroundStyle(player.sleepUntil == nil ? theme.muted : theme.accent)
-            }
-            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().frame(width: 28, height: 28)
-            .help(player.sleepUntil.map { "Sleep timer: pauses at \($0.formatted(date: .omitted, time: .shortened))" } ?? "Sleep timer")
-            .accessibilityLabel("Sleep timer")
-            if workspace.queueSupported {
-                BarButton(symbol: "list.bullet", active: workspace.showQueue, help: workspace.showQueue ? "Hide queue (⇧⌘U)" : "Show queue (⇧⌘U)") {
-                    workspace.showQueue.toggle()
-                }
-            }
-            BarButton(symbol: "keyboard", help: "Keyboard shortcuts (?)") { workspace.showShortcuts.toggle() }
-        }
-    }
-}
-
-struct BarButton: View {
-    @Environment(\.playerTheme) private var theme
-    @Environment(\.isEnabled) private var enabled
-    var symbol: String
-    var active = false
-    var help: String
-    var action: () -> Void
-    @State private var hovering = false
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 13, weight: .medium))
-                .foregroundStyle(active ? theme.accent : hovering ? theme.text : theme.muted)
-                .frame(width: 28, height: 28)
-                .background(hovering && enabled ? theme.text.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 6))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain).help(help).accessibilityLabel(help)
-        .onHover { hovering = $0 }
-    }
-}
-
-/// Slim, toggleable Up Next column. Only exists where the queue is real (sample and MusicKit modes).
-struct QueueColumn: View {
-    @Environment(\.playerTheme) private var theme
-    @ObservedObject var player: PlaybackController
-    @ObservedObject var workspace: Workspace
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 6) {
-                Text("Up next").font(.system(size: 13, weight: .semibold))
-                if !player.upcoming.isEmpty {
-                    Text("\(player.upcoming.count)").font(.system(size: 12)).foregroundStyle(theme.muted).monospacedDigit()
-                }
-                Spacer()
-                if !player.upcoming.isEmpty {
-                    Button("Clear") { player.clearUpcoming() }.buttonStyle(.borderless).font(.system(size: 12)).help("Clear upcoming songs")
-                }
-                BarButton(symbol: "sidebar.right", help: "Hide queue (⇧⌘U)") { workspace.showQueue = false }
-            }
-            .padding(.leading, 14).padding(.trailing, 6).frame(height: 48).padding(.top, 0)
-            if player.upcoming.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Nothing queued").font(.system(size: 13))
-                    Text("Play a playlist, or use Play next on any song.").font(.system(size: 12)).foregroundStyle(theme.muted)
-                }.padding(.horizontal, 14).padding(.top, 6)
-            }
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(player.upcoming.enumerated()), id: \.element.id) { offset, entry in
-                        QueueRow(player: player, entry: entry, offset: offset)
-                    }
-                }.padding(.horizontal, 6)
-            }
-            if !player.upcoming.isEmpty {
+            if let deadline = player.sleepUntil {
                 Divider()
-                Text("\(Int(player.upcoming.reduce(0) { $0 + $1.track.duration } / 60)) min remaining")
-                    .font(.system(size: 11)).foregroundStyle(theme.muted).padding(.horizontal, 14).padding(.vertical, 9)
+                Text("Pauses at \(deadline.formatted(date: .omitted, time: .shortened))")
+                Button("Cancel sleep timer") { player.setSleepTimer(minutes: nil) }
             }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: player.sleepUntil == nil ? "moon" : "moon.zzz.fill")
+                if let deadline = player.sleepUntil { Text(deadline.formatted(date: .omitted, time: .shortened)) }
+            }
+            .foregroundStyle(player.sleepUntil == nil ? theme.muted : theme.accent)
         }
-        .frame(maxHeight: .infinity, alignment: .top)
-        .background(theme.surface.opacity(theme.isDark ? 0.45 : 0.35))
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .help("Sleep timer").accessibilityLabel("Sleep timer")
     }
 }
 
-struct QueueRow: View {
+private struct PillQueueRow: View {
     @Environment(\.playerTheme) private var theme
     @ObservedObject var player: PlaybackController
     var entry: PlaybackRow
     var offset: Int
+    var count: Int
     @State private var hovering = false
     var body: some View {
-        HStack(spacing: 8) {
-            Text("\(offset + 1)").font(.system(size: 11)).monospacedDigit().foregroundStyle(theme.muted).frame(width: 18, alignment: .trailing)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(entry.track.title).font(.system(size: 12)).lineLimit(1)
-                Text(entry.track.artist).font(.system(size: 11)).foregroundStyle(theme.muted).lineLimit(1)
+        HStack(spacing: 10) {
+            Artwork(url: entry.track.artwork, seed: entry.track.album, size: 32, cornerRadius: 6)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.track.title).font(.system(size: 13)).lineLimit(1)
+                Text(entry.track.artist).font(.system(size: 12)).foregroundStyle(theme.muted).lineLimit(1)
             }
             Spacer(minLength: 0)
-            if hovering {
-                HStack(spacing: 0) {
-                    RowIconButton(symbol: "chevron.up", help: "Move up") { player.move(entry.id, by: -1) }.disabled(offset == 0)
-                    RowIconButton(symbol: "chevron.down", help: "Move down") { player.move(entry.id, by: 1) }.disabled(offset == player.upcoming.count - 1)
-                    RowIconButton(symbol: "xmark", help: "Remove from queue") { player.remove(entry.id) }
-                }
-            }
+            Menu {
+                Button("Move up") { player.move(entry.id, by: -1) }.disabled(offset == 0)
+                Button("Move down") { player.move(entry.id, by: 1) }.disabled(offset == count - 1)
+                Divider()
+                Button("Remove from queue") { player.remove(entry.id) }
+            } label: { Image(systemName: "ellipsis") }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                .opacity(hovering ? 1 : 0.45)
+                .accessibilityLabel("Queue actions for \(entry.track.title)")
         }
-        .padding(.horizontal, 8).frame(height: 34)
-        .background(hovering ? theme.text.opacity(0.05) : .clear, in: RoundedRectangle(cornerRadius: 6))
-        .contentShape(Rectangle())
+        .padding(.horizontal, 12).padding(.vertical, 6)
+        .background(hovering ? theme.muted.opacity(0.10) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .onHover { hovering = $0 }
-        .contextMenu {
-            Button("Move up") { player.move(entry.id, by: -1) }.disabled(offset == 0)
-            Button("Move down") { player.move(entry.id, by: 1) }.disabled(offset == player.upcoming.count - 1)
-            Divider()
-            Button("Remove from queue") { player.remove(entry.id) }
-        }
     }
 }
