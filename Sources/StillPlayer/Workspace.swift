@@ -18,7 +18,7 @@ struct TrackRowItem: Identifiable, Equatable {
 /// Playback and library behaviour stay in `AppModel`.
 @MainActor
 final class Workspace: ObservableObject {
-    weak var model: AppModel?
+    weak var model: AppModel? { didSet { palette.workspace = self } }
     weak var window: NSWindow?
 
     // Lists
@@ -42,7 +42,8 @@ final class Workspace: ObservableObject {
     @Published private(set) var forwardStack: [String] = []
 
     // Overlays
-    @Published var palette = PaletteState()
+    /// The command palette (Raycast-style: one ranked list, an action panel per result).
+    let palette = PaletteController()
     @Published var pillExpanded = false
     /// The list the user last started playing from, so the sidebar can mark it.
     @Published var playingListID: String?
@@ -278,13 +279,35 @@ final class Workspace: ObservableObject {
     // MARK: Palette
 
     func openPalette(query: String = "") {
-        palette = PaletteState(isOpen: true, query: query)
+        sidebarPeek = false
         pillExpanded = false
+        palette.open(query: query)
     }
 
-    func closePalette() { palette.isOpen = false }
+    /// Opens the palette at the choose-a-playlist step for these songs.
+    func addToPlaylist(_ tracks: [LibraryTrack]) {
+        guard !tracks.isEmpty else { return }
+        sidebarPeek = false
+        pillExpanded = false
+        palette.open(step: .addToPlaylist(tracks, subject: tracks.count == 1 ? tracks[0].title : "\(tracks.count) songs"))
+    }
 
-    /// ⇧⌘P / ⌘K: open, or close again like Arc's command bar.
+    /// ⌘K on the song list: the palette opens at the selection's actions.
+    func showActionsForSelection() {
+        let tracks = selectedTracks()
+        if tracks.count == 1, let track = tracks.first {
+            sidebarPeek = false; pillExpanded = false
+            palette.open(actionsFor: PaletteCatalog.song(track))
+        } else if tracks.count > 1 {
+            addToPlaylist(tracks)
+        } else {
+            openPalette()
+        }
+    }
+
+    func closePalette() { palette.close() }
+
+    /// The palette shortcut (⇧⌘P unless changed in Settings) opens the palette, or closes it again.
     func togglePalette() { if palette.isOpen { closePalette() } else { openPalette() } }
 
     // MARK: Keyboard
@@ -298,28 +321,18 @@ final class Workspace: ObservableObject {
         }
     }
 
-    /// Set by the palette view: moves the highlight and runs the highlighted row.
-    var paletteKeys: ((PaletteKey) -> Void)?
-
     private func handle(_ event: NSEvent) -> Bool {
         guard let window, event.window === window, window.attachedSheet == nil else { return false }
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
         let editing = window.firstResponder is NSTextView
         let key = event.keyCode
 
-        if palette.isOpen {
-            switch key {
-            case 125 where flags.isEmpty: paletteKeys?(.down); return true
-            case 126 where flags.isEmpty: paletteKeys?(.up); return true
-            case 36, 76: paletteKeys?(.run); return true
-            case 53: paletteKeys?(.escape); return true
-            case 48: paletteKeys?(flags == .shift ? .up : .down); return true
-            default: return false
-            }
-        }
+        // The configurable palette shortcut wins over everything, so it can also close the palette.
+        if PaletteShortcut.current.matches(event) { togglePalette(); return true }
+        if palette.isOpen { return palette.handle(key: key, flags: flags, characters: event.charactersIgnoringModifiers) }
 
         if showShortcuts {
-            if key == 53 || (event.charactersIgnoringModifiers == "?" && !editing) { showShortcuts = false; return true }
+            if key == 53 { showShortcuts = false; return true }
             return false
         }
 
@@ -351,6 +364,8 @@ final class Workspace: ObservableObject {
             moveSelection(key == 125 ? 1 : -1, extend: flags == .shift); return true
         case 0 where flags == .command:
             selectAll(); return true
+        case 40 where flags == .command:
+            showActionsForSelection(); return true
         default: break
         }
         // Space plays/pauses only when it isn't being typed.
@@ -358,15 +373,7 @@ final class Workspace: ObservableObject {
             if let model, model.playback.current != nil { model.perform { try await model.playback.toggle() } }
             return true
         }
-        if event.charactersIgnoringModifiers == "?" && flags.subtracting(.shift).isEmpty {
-            showShortcuts = true; return true
-        }
-        // Type anywhere: printable characters open the palette with what you typed.
-        if flags.subtracting(.shift).isEmpty, let typed = event.characters, typed.count == 1,
-           let scalar = typed.unicodeScalars.first, CharacterSet.alphanumerics.contains(scalar) {
-            openPalette(query: typed)
-            return true
-        }
+        // Plain letters do nothing unless a text field is focused: no type-to-search, no surprises.
         return false
     }
 }

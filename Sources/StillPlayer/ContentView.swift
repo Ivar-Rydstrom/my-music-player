@@ -10,9 +10,18 @@ struct ContentView: View {
     @Environment(\.playerTheme) private var theme
     @ObservedObject var model: AppModel
     @ObservedObject var workspace: Workspace
+    @ObservedObject var palette: PaletteController
     @ObservedObject var themes: ThemeStore
     var updater: AppUpdater
     @Environment(\.openSettings) private var openSettings
+
+    init(model: AppModel, workspace: Workspace, themes: ThemeStore, updater: AppUpdater) {
+        self.model = model
+        self.workspace = workspace
+        self.palette = workspace.palette
+        self.themes = themes
+        self.updater = updater
+    }
 
     static let sidebarWidth: CGFloat = 244
     private let spring = Animation.spring(response: 0.38, dampingFraction: 0.86)
@@ -51,13 +60,12 @@ struct ContentView: View {
             #endif
         })
         .overlay {
-            if workspace.palette.isOpen {
-                CommandPaletteView(model: model, player: model.playback, workspace: workspace,
-                                   themeID: themes.preferences.preset, run: run)
+            if palette.isOpen {
+                CommandPalette(palette: palette, model: model)
                     .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .top)), removal: .opacity))
             }
         }
-        .animation(.spring(response: 0.26, dampingFraction: 0.9), value: workspace.palette.isOpen)
+        .animation(.spring(response: 0.26, dampingFraction: 0.9), value: palette.isOpen)
         .overlay {
             if workspace.showShortcuts {
                 ShortcutsOverlay(workspace: workspace, queueSupported: workspace.queueSupported, musicVolume: model.playback.isMusicApp)
@@ -67,6 +75,7 @@ struct ContentView: View {
         .animation(.easeOut(duration: 0.12), value: workspace.showShortcuts)
         .task {
             workspace.model = model
+            wirePalette()
             workspace.installKeyMonitor()
             if ProcessInfo.processInfo.arguments.contains("--sample-library") { model.useSamples() }
             #if DEBUG
@@ -133,54 +142,84 @@ struct ContentView: View {
         }
     }
 
-    // MARK: Palette actions
+    // MARK: Palette wiring
 
-    private func run(_ item: PaletteItem) {
-        let player = model.playback
-        if case .addTracks = item.action {} else if !item.opensStep, !item.id.hasPrefix("song:"), !item.id.hasPrefix("playlist:"), item.id != "all-results" {
-            var recent = UserDefaults.standard.stringArray(forKey: "palette.recent") ?? []
-            recent.removeAll { $0 == item.id }
-            recent.insert(item.id, at: 0)
-            UserDefaults.standard.set(Array(recent.prefix(8)), forKey: "palette.recent")
+    private func wirePalette() {
+        palette.perform = { command in perform(command) }
+        palette.contextProvider = { [weak model, weak workspace, weak themes] in
+            guard let model, let workspace else { return PaletteContext() }
+            let player = model.playback
+            return PaletteContext(current: player.current, isPlaying: player.isPlaying, favorites: model.favorites,
+                                  shuffle: player.shuffle, repeatAll: player.repeatAll,
+                                  isMusicApp: player.isMusicApp || workspace.debugMusicAppLayout,
+                                  queueSupported: workspace.queueSupported && player.canEditQueue, sleepActive: player.sleepUntil != nil,
+                                  sidebarCollapsed: workspace.sidebarCollapsed, hasRecentlyPlayed: !model.recentTracks.isEmpty,
+                                  playlists: Workspace.alphabetical(model.playlists),
+                                  themes: ThemePreset.all.map { ($0.id, $0.name) }, currentTheme: themes?.preferences.preset ?? "",
+                                  selectedID: model.selectedID, selectedTracks: workspace.selectedTracks())
         }
-        if !item.opensStep { workspace.closePalette() }
-        switch item.action {
-        case .playPause: model.perform { try await player.toggle() }
+        palette.songProvider = { [weak model] in
+            guard let model else { return [] }
+            var songs: [LibraryTrack] = model.searchResults
+            songs += model.tracks
+            for loaded in model.loadedTracks.values { songs += loaded }
+            for playlist in model.playlists { songs += playlist.tracks }
+            songs += model.recentTracks
+            return songs
+        }
+        palette.contentsProvider = { [weak model] id in
+            guard let model, let playlist = model.playlists.first(where: { $0.id == id }) else { return [] }
+            return Set((model.loadedTracks[id] ?? playlist.tracks).map(\.id))
+        }
+    }
+
+    private func perform(_ command: PaletteCommand) {
+        let player = model.playback
+        switch command {
+        case .togglePlayback: model.perform { try await player.toggle() }
         case .next: model.perform { try await player.next() }
         case .previous: model.perform { try await player.previous() }
-        case let .shuffle(on): player.shuffle = on; player.applyModes()
-        case let .repeatAll(on): player.repeatAll = on; player.applyModes()
         case .seekToStart: player.seek(0)
-        case let .volume(delta): player.setVolume(min(100, max(0, player.volume + Double(delta))))
+        case .setShuffle(let on): player.shuffle = on; player.applyModes()
+        case .setRepeat(let on): player.repeatAll = on; player.applyModes()
+        case .volume(let up): player.setVolume(up ? min(100, player.volume + 10) : max(0, player.volume - 10))
         case .favoriteCurrent: if let current = player.current { model.perform { try await model.favorite(current) } }
-        case .addCurrentToPlaylist:
-            if let current = player.current {
-                workspace.palette.step = .addToPlaylist(tracks: [current], label: "“\(current.title)”")
-                workspace.palette.query = ""; workspace.palette.highlight = 0
-            }
         case .revealCurrent: if let current = player.current { workspace.reveal(current) }
-        case let .sleep(minutes): player.setSleepTimer(minutes: minutes)
+        case .sleep(let minutes):
+            player.setSleepTimer(minutes: minutes)
+            model.notice = minutes.map { "Pausing playback in \($0) minutes." } ?? "Sleep timer cancelled."
         case .toggleSidebar: withAnimation(spring) { workspace.toggleSidebar() }
-        case .expandPlayer: withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { workspace.pillExpanded = true }
+        case .expandPlayer: withAnimation(FloatingPlayer.morph) { workspace.pillExpanded = true }
         case .refresh: model.perform { await model.refresh() }
         case .clearRecent: model.recentTracks = []
-        case .checkUpdates: Task { await updater.check(userInitiated: true) }
-        case .shortcuts: workspace.showShortcuts = true
+        case .checkForUpdates: Task { await updater.check(userInitiated: true) }
+        case .showShortcuts: workspace.showShortcuts = true
         case .filterPlaylist: workspace.revealFilter()
-        case let .settings(tab):
+        case .showResults(let query): workspace.showResults(for: query)
+        case .settings(let tab):
             if let tab { UserDefaults.standard.set(tab, forKey: "settings.tab") }
             openSettings()
-        case let .theme(id): themes.preferences.preset = id
-        case let .openPlaylist(id): workspace.select(id)
-        case let .playSong(id):
-            let songs = model.searchResults
-            if let index = songs.firstIndex(where: { $0.id == id }) { model.perform { try await player.play(songs, at: index) } }
-        case let .showAllResults(query): workspace.showResults(for: query)
-        case let .addTracks(playlistID):
-            if case let .addToPlaylist(tracks, _) = workspace.palette.step, let playlist = model.playlists.first(where: { $0.id == playlistID }) {
-                model.perform { try await model.add(tracks, to: playlist) }
+        case .theme(let id): themes.preferences.preset = id
+        case .open(let id): workspace.select(id)
+        case .playPlaylist(let id, let shuffled):
+            workspace.select(id)
+            Task { await model.select(id); workspace.playPlaylist(shuffled: shuffled) }
+        case .play(let track):
+            if let row = workspace.rows().first(where: { $0.track.id == track.id }) { workspace.play(row: row) }
+            else { model.perform { try await player.play([track]) } }
+        case .playNext(let tracks):
+            model.perform { try await player.enqueue(tracks, next: true); model.notice = tracks.count == 1 ? "\(tracks[0].title) plays next." : "\(tracks.count) songs play next." }
+        case .addToQueue(let tracks):
+            model.perform { try await player.enqueue(tracks, next: false); model.notice = tracks.count == 1 ? "Added \(tracks[0].title) to the queue." : "Added \(tracks.count) songs to the queue." }
+        case .favorite(let track): model.perform { try await model.favorite(track) }
+        case .reveal(let track): workspace.reveal(track)
+        case .add(let tracks, let id):
+            if let playlist = model.playlists.first(where: { $0.id == id }) {
+                model.perform {
+                    try await model.add(tracks, to: playlist)
+                    model.notice = tracks.count == 1 ? "Added \(tracks[0].title) to \(playlist.name)." : "Added \(tracks.count) songs to \(playlist.name)."
+                }
             }
-            workspace.palette.step = .root
         }
     }
 
@@ -208,7 +247,8 @@ struct ContentView: View {
         }
     }
     /// Screenshot helpers: --demo-playing, --select-rows=2,3,5, --hover-row=N, --filter=text, --results=text,
-    /// --palette=query, --palette-step=add, --palette-row=N, --pill=expanded, --show-shortcuts, --history.
+    /// --palette=query (+ for spaces), --palette-row=N, --palette-actions, --palette-step=add, --palette-song=N,
+    /// --pill=expanded, --show-shortcuts, --history.
     private func applyDebugState() async {
         let args = ProcessInfo.processInfo.arguments
         if args.contains("--history") {
@@ -229,15 +269,24 @@ struct ContentView: View {
         }
         if let hover = argument("--hover-row") { workspace.debugHoverRow = Int(hover) }
         if argument("--pill") == "expanded" { workspace.pillExpanded = true }
-        if let query = argument("--palette") {
+        if let number = argument("--palette-song").flatMap(Int.init), let row = workspace.rows().first(where: { $0.number == number }) {
+            // Same path as ⌘K with one song selected in the list.
+            workspace.selection = [row.id]
             try? await Task.sleep(for: .milliseconds(300))
-            workspace.openPalette(query: query)
-            if argument("--palette-step") == "add", let current = model.playback.current {
-                workspace.palette.step = .addToPlaylist(tracks: [current], label: "“\(current.title)”")
-            }
-            if let row = argument("--palette-row").flatMap(Int.init) {
-                try? await Task.sleep(for: .milliseconds(700))
-                workspace.palette.highlight = row
+            workspace.showActionsForSelection()
+        } else if argument("--palette-step") == "add" {
+            try? await Task.sleep(for: .milliseconds(300))
+            let selected = workspace.selectedTracks()
+            if !selected.isEmpty { workspace.addToPlaylist(selected) }
+            else if let current = model.playback.current { workspace.addToPlaylist([current]) }
+        } else if let query = argument("--palette") {
+            try? await Task.sleep(for: .milliseconds(300))
+            workspace.openPalette(query: query.replacingOccurrences(of: "+", with: " "))
+            try? await Task.sleep(for: .milliseconds(600))
+            if let row = argument("--palette-row").flatMap(Int.init) { palette.move(row) }
+            if args.contains("--palette-actions") {
+                try? await Task.sleep(for: .milliseconds(200))
+                palette.showActions()
             }
         }
         if args.contains("--show-shortcuts") { workspace.showShortcuts = true }
@@ -261,9 +310,6 @@ struct ContentCard: View {
                 if workspace.isShowingResults { ResultsHeader(model: model, workspace: workspace) }
                 else { PlaylistHeader(model: model, workspace: workspace, visible: rows.count) }
             }
-            .opacity(workspace.selection.count > 1 ? 0.12 : 1)
-            .blur(radius: workspace.selection.count > 1 ? 2 : 0)
-            .allowsHitTesting(workspace.selection.count <= 1)
             TrackListHeader(workspace: workspace).padding(.horizontal, TrackMetrics.horizontalInset)
             ZStack {
                 if !workspace.isShowingResults && model.loadingPlaylistID == model.selectedID {
@@ -278,15 +324,6 @@ struct ContentCard: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(alignment: .top) { HeaderWash(model: model, workspace: workspace) }
         .background(theme.background)
-        .overlay(alignment: .top) {
-            if workspace.selection.count > 1 {
-                // Rests in the header band, which steps back while a selection is active.
-                SelectionBar(model: model, workspace: workspace)
-                    .padding(.top, 28)
-                    .transition(.move(edge: .top).combined(with: .opacity).combined(with: .scale(scale: 0.92, anchor: .top)))
-            }
-        }
-        .animation(.spring(response: 0.34, dampingFraction: 0.72), value: workspace.selection.count > 1)
         .overlay(alignment: .bottom) { notice }
         .overlay { FloatingPlayer(model: model, player: player, workspace: workspace) }
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -318,13 +355,13 @@ struct ContentCard: View {
             ContentUnavailableView {
                 Label("Nothing in \(listTitle) matches", systemImage: "line.3.horizontal.decrease")
             } description: {
-                Text("Search everything with ⇧⌘P.")
+                Text("Search everything with \(PaletteShortcut.current.display).")
             } actions: {
                 Button("Search all music") { workspace.openPalette(query: workspace.filterText) }
             }
         } else {
             ContentUnavailableView(model.selectedID == "recent" ? "Nothing played yet" : "No songs here yet", systemImage: "music.note",
-                description: Text("Pick a playlist on the left, or press ⇧⌘P to search."))
+                description: Text("Pick a playlist on the left, or press \(PaletteShortcut.current.display) to search."))
         }
     }
 }
@@ -457,7 +494,7 @@ struct ResultsHeader: View {
             }
             Spacer()
             Button { workspace.openPalette(query: workspace.resultsQuery ?? "") } label: { Label("Edit search", systemImage: "magnifyingglass") }
-                .buttonStyle(SoftCapsuleStyle(prominent: false)).help("Search again (⇧⌘P)")
+                .buttonStyle(SoftCapsuleStyle(prominent: false)).help("Search again (\(PaletteShortcut.current.display))")
             Button { workspace.resultsQuery = nil } label: { Label("Back", systemImage: "arrow.uturn.backward") }
                 .buttonStyle(SoftCapsuleStyle(prominent: false)).help("Back to \(Workspace.title(for: model.selectedID, in: model)) (Esc)")
         }

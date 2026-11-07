@@ -5,19 +5,23 @@ struct ShortcutsOverlay: View {
     @ObservedObject var workspace: Workspace
     var queueSupported: Bool
     var musicVolume: Bool
+    @AppStorage(PaletteShortcut.storageKey) private var paletteShortcut = PaletteShortcut.standard.storage
+    private var paletteKey: String { PaletteShortcut(storage: paletteShortcut).display }
 
     private var groups: [(String, [(String, String)])] {
         var playback = [("Play / pause", "Space  ⌘P"), ("Next / previous song", "⌘→  ⌘←"), ("Play playlist", "⌘↩"),
                         ("Shuffle playlist", "⇧⌘↩"), ("Favorite current song", "⌘L")]
         if musicVolume { playback.append(("Music volume", "⌘↑  ⌘↓")) }
         return [
-            ("Palette", [("Search and commands", "⇧⌘P  ⌘K"), ("Start typing anywhere", "a–z"), ("Move / run", "↑  ↓  ↩"),
-                         ("Back a step, then close", "esc")]),
-            ("Go", [("Back / forward", "⌘[  ⌘]"), ("Next / previous playlist", "⌥⌘↓  ⌥⌘↑"), ("Filter this playlist", "⌘F")]),
-            ("Songs", [("Play selected", "↩"), ("Extend selection", "⇧↑  ⇧↓"), ("Select all", "⌘A"), ("Clear selection", "esc")]),
+            ("Palette", [("Search and commands", paletteKey), ("Move / run", "↑  ↓  ↩"), ("Actions for a result", "⌘K  →"),
+                         ("Play next / shuffle", "⌘↩"), ("Back a step, then close", "⌫  esc")]),
+            ("Go", [("Back / forward", "⌘[  ⌘]"), ("Next / previous playlist", "⌥⌘↓  ⌥⌘↑"), ("Filter this playlist", "⌘F"),
+                    ("Reveal current song", "⌘J")]),
+            ("Songs", [("Play selected", "↩"), ("Actions for selected song", "⌘K"), ("Extend selection", "⇧↑  ⇧↓"),
+                       ("Select all", "⌘A"), ("Clear selection", "esc")]),
             ("Playback", playback),
             ("Window", [("Hide / show sidebar", "⌘S"), (queueSupported ? "Expand player and queue" : "Expand player", "⇧⌘U"),
-                        ("Keyboard shortcuts", "?  ⌘/"), ("Settings", "⌘,"), ("Refresh library", "⌘R")])
+                        ("Keyboard shortcuts", "⌘/"), ("Settings", "⌘,"), ("Refresh library", "⌘R")])
         ]
     }
 
@@ -35,7 +39,7 @@ struct ShortcutsOverlay: View {
                     column(Array(groups.prefix(3)))
                     column(Array(groups.dropFirst(3)))
                 }
-                Text("Every command is also in the palette (⇧⌘P), with its shortcut beside it.").font(.system(size: 12)).foregroundStyle(theme.muted)
+                Text("Every command is also in the palette (\(paletteKey)), with its shortcut beside it. Change the palette key in Settings › Keyboard.").font(.system(size: 12)).foregroundStyle(theme.muted)
             }
             .padding(24)
             .frame(width: 640)

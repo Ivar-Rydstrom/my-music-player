@@ -111,7 +111,7 @@ struct Sidebar: View {
             .help(model.isLive ? model.connectionStatus : "Sample library: simulated playback, no audio")
             Spacer(minLength: 4)
             ChromeButton(symbol: "arrow.clockwise", help: "Refresh library (⌘R)", size: 12.5) { model.perform { await model.refresh() } }
-            ChromeButton(symbol: "keyboard", help: "Keyboard shortcuts (?)", size: 12.5) { workspace.showShortcuts = true }
+            ChromeButton(symbol: "keyboard", help: "Keyboard shortcuts (⌘/)", size: 12.5) { workspace.showShortcuts = true }
             ChromeButton(symbol: "gearshape", help: "Settings (⌘,)", size: 13) { openSettings() }
         }
         .padding(.horizontal, 8).frame(height: 40).padding(.bottom, 4)
@@ -129,14 +129,16 @@ struct AddressBar: View {
     @Environment(\.playerTheme) private var theme
     @ObservedObject var workspace: Workspace
     @State private var hovering = false
+    @AppStorage(PaletteShortcut.storageKey) private var paletteShortcut = PaletteShortcut.standard.storage
     var body: some View {
+        let key = PaletteShortcut(storage: paletteShortcut).display
         Button { workspace.openPalette() } label: {
             HStack(spacing: 8) {
                 Text(workspace.contextTitle).font(.system(size: 13, weight: .medium)).lineLimit(1)
                     .foregroundStyle(theme.frameInk.opacity(0.85))
                 Spacer(minLength: 4)
                 if hovering {
-                    Text("⇧⌘P").font(.system(size: 11, weight: .medium, design: .rounded)).foregroundStyle(theme.frameMuted)
+                    Text(key).font(.system(size: 11, weight: .medium, design: .rounded)).foregroundStyle(theme.frameMuted)
                         .transition(.opacity)
                 }
             }
@@ -146,7 +148,7 @@ struct AddressBar: View {
         }
         .buttonStyle(.plain)
         .onHover { inside in withAnimation(.easeOut(duration: 0.12)) { hovering = inside } }
-        .help("Search or run a command (⇧⌘P or ⌘K)")
+        .help("Search or run a command (\(key))")
         .accessibilityLabel("\(workspace.contextTitle). Open command palette")
     }
 }

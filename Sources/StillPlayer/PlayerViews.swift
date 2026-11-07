@@ -3,8 +3,9 @@ import SwiftUI
 import PlayerCore
 #endif
 
-/// The player floats over the content as a pill. Clicking it (or ⇧⌘U) opens a fuller panel with
-/// volume, sleep timer, favorite, and — where the backend allows it — the queue.
+/// One floating object at the bottom of the content card. It is the player pill; selecting two or more
+/// songs morphs it into the selection action bar (a hairline of progress keeps playback visible); clicking
+/// it (or ⇧⌘U) grows it into the fuller panel with volume, sleep timer, favorite and, where real, the queue.
 struct FloatingPlayer: View {
     @Environment(\.playerTheme) private var theme
     @ObservedObject var model: AppModel
@@ -15,34 +16,62 @@ struct FloatingPlayer: View {
     @State private var seeking = false
     @State private var volumeDraft = 50.0
     @State private var changingVolume = false
-    private var expanded: Bool { workspace.pillExpanded }
     /// The debug Music.app layout shows the real volume slider and no queue, as Music.app mode does.
     private var isMusicApp: Bool { player.isMusicApp || workspace.debugMusicAppLayout }
     private var showsQueue: Bool { workspace.queueSupported && player.canEditQueue }
 
+    enum Shape: Equatable { case pill, selection, expanded }
+    private var shape: Shape {
+        if workspace.pillExpanded { return .expanded }
+        if workspace.selection.count > 1 { return .selection }
+        return .pill
+    }
+    static let morph = Animation.spring(response: 0.42, dampingFraction: 0.82)
+
     var body: some View {
         ZStack(alignment: .bottom) {
-            if expanded {
+            if shape == .expanded {
                 Color.black.opacity(theme.isDark ? 0.28 : 0.10)
                     .contentShape(Rectangle())
                     .onTapGesture { toggle() }
                     .padding(.bottom, -16)
                     .transition(.opacity)
-                panel.transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.96, anchor: .bottom)),
-                                             removal: .opacity))
-            } else {
-                pill.transition(.opacity)
+            }
+            // The glass is one matched shape, so it stretches between the three forms while the
+            // contents cross-fade inside it.
+            switch shape {
+            case .expanded:
+                panel
+                    .background(chrome(radius: 26))
+                    .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.2).delay(0.08)), removal: .opacity.animation(.easeOut(duration: 0.1))))
+            case .selection:
+                selectionBar
+                    .background(chrome(radius: 28))
+                    .padding(.horizontal, 24)
+                    .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.18).delay(0.1)), removal: .opacity.animation(.easeOut(duration: 0.1))))
+            case .pill:
+                pill
+                    .background(chrome(radius: 31))
+                    .frame(maxWidth: 660)
+                    .padding(.horizontal, 24)
+                    .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.18).delay(0.1)), removal: .opacity.animation(.easeOut(duration: 0.1))))
             }
         }
         .padding(.bottom, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .animation(Self.morph, value: shape)
         .onAppear { seekDraft = player.progress; volumeDraft = player.volume }
         .onChange(of: player.current?.id) { _, _ in seekDraft = min(player.progress, max(player.current?.duration ?? 0, 1)) }
         .onChange(of: player.progress) { _, value in if !seeking { seekDraft = min(value, max(player.current?.duration ?? 0, 1)) } }
         .onChange(of: player.volume) { _, value in if !changingVolume { volumeDraft = value } }
     }
 
-    private func toggle() { withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { workspace.pillExpanded.toggle() } }
+    private func toggle() { withAnimation(Self.morph) { workspace.pillExpanded.toggle() } }
+
+    private func chrome(radius: CGFloat) -> some View {
+        glassChrome(RoundedRectangle(cornerRadius: radius, style: .continuous), theme: theme)
+            .matchedGeometryEffect(id: "chrome", in: space)
+    }
 
     // MARK: Collapsed pill
 
@@ -71,11 +100,74 @@ struct FloatingPlayer: View {
         }
         .buttonStyle(.plain)
         .padding(.leading, 9).padding(.trailing, 20).frame(height: 62)
-        .background(glassChrome(Capsule(), theme: theme))
         .contentShape(Capsule())
         .onTapGesture(perform: toggle)
-        .frame(maxWidth: 660)
-        .padding(.horizontal, 24)
+    }
+
+    // MARK: Selection bar (the pill, morphed)
+
+    private var selectionBar: some View {
+        let tracks = workspace.selectedTracks()
+        return ViewThatFits(in: .horizontal) {
+            selectionContent(tracks, compact: false)
+            selectionContent(tracks, compact: true)
+        }
+    }
+
+    private func selectionContent(_ tracks: [LibraryTrack], compact: Bool) -> some View {
+        HStack(spacing: 4) {
+            Artwork(url: player.current?.artwork, seed: player.current?.album ?? "Still", size: 34, cornerRadius: 17)
+                .matchedGeometryEffect(id: "art", in: space)
+                .overlay {
+                    if player.current != nil {
+                        Button { model.perform { try await player.toggle() } } label: {
+                            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(.white).frame(width: 34, height: 34).background(.black.opacity(0.3), in: Circle())
+                        }
+                        .buttonStyle(.plain).help(player.isPlaying ? "Pause (Space)" : "Play (Space)")
+                        .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
+                    }
+                }
+                .padding(.trailing, 6)
+            Text("\(tracks.count) selected").font(.system(size: 13, weight: .semibold)).monospacedDigit().fixedSize()
+                .contentTransition(.numericText()).padding(.trailing, 8)
+            Button { workspace.playSelection() } label: { Label("Play", systemImage: "play.fill") }
+                .buttonStyle(SoftCapsuleStyle(prominent: true, compact: true)).help("Play from the first selected song (Return)")
+            if showsQueue {
+                PillAction(title: "Play next", icon: "text.line.first.and.arrowtriangle.forward", compact: compact) {
+                    model.perform { try await player.enqueue(tracks, next: true) }
+                }
+                PillAction(title: "Add to queue", icon: "text.line.last.and.arrowtriangle.forward", compact: compact) {
+                    model.perform { try await player.enqueue(tracks, next: false) }
+                }
+            }
+            PillAction(title: "Add to playlist…", icon: "text.badge.plus", compact: compact) { workspace.addToPlaylist(tracks) }
+            PillAction(title: "Favorite", icon: "star", compact: compact) { favoriteAll(model: model, tracks: tracks) }
+            Rectangle().fill(theme.text.opacity(0.12)).frame(width: 1, height: 18).padding(.horizontal, 4)
+            Button { withAnimation(Self.morph) { workspace.selection = [] } } label: {
+                Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).frame(width: 28, height: 28)
+                    .background(theme.text.opacity(0.07), in: Circle())
+            }
+            .buttonStyle(.plain).foregroundStyle(theme.muted).help("Clear selection (Esc)").accessibilityLabel("Clear selection")
+        }
+        .foregroundStyle(theme.text)
+        .padding(.leading, 11).padding(.trailing, 11).frame(height: 56)
+        .overlay(alignment: .bottom) { progressLine.padding(.horizontal, 28).padding(.bottom, 4) }
+        .fixedSize()
+    }
+
+    /// The playback hint that survives the morph: a hairline of progress along the bottom edge.
+    private var progressLine: some View {
+        GeometryReader { proxy in
+            let fraction = player.current.map { min(1, player.progress / max($0.duration, 1)) } ?? 0
+            ZStack(alignment: .leading) {
+                Capsule().fill(theme.text.opacity(0.08))
+                Capsule().fill(theme.accent.opacity(0.85)).frame(width: proxy.size.width * fraction)
+            }
+        }
+        .frame(height: 2)
+        .opacity(player.current == nil ? 0 : 1)
+        .accessibilityHidden(true)
     }
 
     // MARK: Expanded panel
@@ -89,7 +181,6 @@ struct FloatingPlayer: View {
             }
         }
         .frame(height: showsQueue ? 470 : nil)
-        .background(glassChrome(RoundedRectangle(cornerRadius: 26, style: .continuous), theme: theme))
     }
 
     private var nowPlaying: some View {

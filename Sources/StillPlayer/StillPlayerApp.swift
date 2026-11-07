@@ -6,6 +6,7 @@ struct StillPlayerApp: App {
     @StateObject private var themes = ThemeStore()
     @StateObject private var updater = AppUpdater()
     @StateObject private var workspace = Workspace()
+    @AppStorage(PaletteShortcut.storageKey) private var paletteShortcut = PaletteShortcut.standard.storage
     var body: some Scene {
         WindowGroup {
             ContentView(model: model, workspace: workspace, themes: themes, updater: updater)
@@ -29,13 +30,17 @@ struct StillPlayerApp: App {
                 Button("Check for Updates…") { Task { await updater.check(userInitiated: true) } }.disabled(updater.isBusy)
             }
             CommandGroup(replacing: .textEditing) {
-                Button("Command Palette…") { workspace.togglePalette() }.keyboardShortcut("p", modifiers: [.command, .shift])
-                Button("Search…") { workspace.togglePalette() }.keyboardShortcut("k", modifiers: [.command])
+                // The key itself is handled by the window's key monitor; this shows it on the menu.
+                Button("Command Palette…") { workspace.togglePalette() }.paletteShortcut(PaletteShortcut(storage: paletteShortcut))
+                Button("Actions for Selected Song…") { workspace.showActionsForSelection() }.keyboardShortcut("k", modifiers: [.command])
                 Button("Filter This Playlist") { workspace.revealFilter() }.keyboardShortcut("f", modifiers: [.command])
             }
             CommandMenu("Go") {
                 Button("Back") { workspace.goBack() }.keyboardShortcut("[", modifiers: [.command]).disabled(!workspace.canGoBack)
                 Button("Forward") { workspace.goForward() }.keyboardShortcut("]", modifiers: [.command]).disabled(!workspace.canGoForward)
+                Button("Reveal Current Song") {
+                    if let current = model.playback.current { workspace.reveal(current) }
+                }.keyboardShortcut("j", modifiers: [.command]).disabled(model.playback.current == nil)
                 Divider()
                 Button("Recently Played") { workspace.select("recent") }
                 Button("Favorites") { workspace.select("favorites") }
@@ -66,7 +71,7 @@ struct StillPlayerApp: App {
                     withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) { workspace.toggleSidebar() }
                 }.keyboardShortcut("s", modifiers: [.command])
                 Button(workspace.pillExpanded ? "Collapse Player" : (workspace.queueSupported ? "Expand Player and Queue" : "Expand Player")) {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { workspace.pillExpanded.toggle() }
+                    withAnimation(FloatingPlayer.morph) { workspace.pillExpanded.toggle() }
                 }.keyboardShortcut("u", modifiers: [.command, .shift])
             }
             CommandGroup(replacing: .help) {

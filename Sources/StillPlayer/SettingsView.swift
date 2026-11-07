@@ -18,8 +18,9 @@ struct SettingsView: View {
                 Picker("Settings section", selection: $tab) {
                     Text("Appearance").tag("appearance")
                     Text("Connection").tag("connection")
+                    Text("Keyboard").tag("keyboard")
                     Text("Updates").tag("updates")
-                }.pickerStyle(.segmented).labelsHidden().frame(width: 360)
+                }.pickerStyle(.segmented).labelsHidden().frame(width: 440)
             }.padding(26)
             Divider()
             if tab == "appearance" {
@@ -65,6 +66,8 @@ struct SettingsView: View {
                         }
                     }.padding(28)
                 }
+            } else if tab == "keyboard" {
+                KeyboardSettingsView()
             } else if tab == "updates" {
                 UpdateSettingsView(updater: updater)
             } else {

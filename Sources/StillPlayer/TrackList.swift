@@ -272,53 +272,6 @@ struct RowIconButton: View {
     }
 }
 
-/// Appears when two or more songs are selected: a glass capsule that drops in from the top of the
-/// content card, mirroring the player pill at the bottom. Icon-only when the card is narrow.
-struct SelectionBar: View {
-    @Environment(\.playerTheme) private var theme
-    @ObservedObject var model: AppModel
-    @ObservedObject var workspace: Workspace
-    var body: some View {
-        let tracks = workspace.selectedTracks()
-        ViewThatFits(in: .horizontal) {
-            bar(tracks, compact: false)
-            bar(tracks, compact: true)
-        }.padding(.horizontal, 16)
-    }
-
-    private func bar(_ tracks: [LibraryTrack], compact: Bool) -> some View {
-        HStack(spacing: 4) {
-            Text("\(tracks.count) selected").font(.system(size: 12.5, weight: .semibold)).monospacedDigit().fixedSize()
-                .padding(.leading, 6).padding(.trailing, 8)
-            Button { workspace.playSelection() } label: { Label("Play", systemImage: "play.fill") }
-                .buttonStyle(SoftCapsuleStyle(prominent: true, compact: true)).help("Play selection (Return)")
-            if model.playback.canEditQueue && workspace.queueSupported {
-                PillAction(title: "Play next", icon: "text.line.first.and.arrowtriangle.forward", compact: compact) {
-                    model.perform { try await model.playback.enqueue(tracks, next: true) }
-                }
-                PillAction(title: "Add to queue", icon: "text.line.last.and.arrowtriangle.forward", compact: compact) {
-                    model.perform { try await model.playback.enqueue(tracks, next: false) }
-                }
-            }
-            PillAction(title: "Add to playlist…", icon: "text.badge.plus", compact: compact) {
-                workspace.openPalette()
-                workspace.palette.step = .addToPlaylist(tracks: tracks, label: tracks.count == 1 ? "“\(tracks[0].title)”" : "\(tracks.count) songs")
-            }
-            PillAction(title: "Favorite", icon: "star", compact: compact) { favoriteAll(model: model, tracks: tracks) }
-            Rectangle().fill(theme.text.opacity(0.12)).frame(width: 1, height: 18).padding(.horizontal, 4)
-            Button { workspace.selection = [] } label: {
-                Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).frame(width: 26, height: 26)
-                    .background(theme.text.opacity(0.07), in: Circle())
-            }
-            .buttonStyle(.plain).foregroundStyle(theme.muted).help("Clear selection (Esc)").accessibilityLabel("Clear selection")
-        }
-        .foregroundStyle(theme.text)
-        .padding(.leading, 8).padding(.trailing, 7).frame(height: 44)
-        .background(glassChrome(Capsule(), theme: theme))
-        .fixedSize()
-    }
-}
-
 struct PillAction: View {
     @Environment(\.playerTheme) private var theme
     var title: String
