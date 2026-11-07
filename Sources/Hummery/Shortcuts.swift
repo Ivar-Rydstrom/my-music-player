@@ -194,7 +194,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .palette: "Open it from the address bar at the top of the sidebar, or Edit › Command Palette."
         case .songActions: "Right-click a song, or use its ⋯ button."
         case .playPause, .playPauseQuick: "Use the play button in the player, or Playback › Play / Pause."
-        case .settings: "Use the gear at the bottom of the sidebar, or Still › Settings."
+        case .settings: "Use the gear at the bottom of the sidebar, or Hummery › Settings."
         case .shortcutsHelp: "Use the keyboard button at the bottom of the sidebar, or Help › Keyboard Shortcuts."
         default: nil
         }

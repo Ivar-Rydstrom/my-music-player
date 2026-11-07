@@ -386,7 +386,7 @@ struct HeaderWash: View {
                     LinearGradient(colors: [theme.highlight.color.opacity(theme.isDark ? 0.30 : 0.26), theme.glow.color.opacity(theme.isDark ? 0.18 : 0.20)],
                                    startPoint: .topLeading, endPoint: .trailing)
                 } else {
-                    Artwork(url: model.playlist?.artwork, seed: model.playlist?.name ?? "Still", size: proxy.size.width)
+                    Artwork(url: model.playlist?.artwork, seed: model.playlist?.name ?? "Hummery", size: proxy.size.width)
                         .frame(width: proxy.size.width, height: proxy.size.height)
                         .blur(radius: 56).saturation(1.25).opacity(theme.isDark ? 0.55 : 0.42)
                 }
@@ -454,7 +454,7 @@ struct PlaylistHeader: View {
                             in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .shadow(color: .black.opacity(0.16), radius: 8, y: 4)
         } else {
-            Artwork(url: model.playlist?.artwork, seed: model.playlist?.name ?? "Still", size: 64, cornerRadius: 10)
+            Artwork(url: model.playlist?.artwork, seed: model.playlist?.name ?? "Hummery", size: 64, cornerRadius: 10)
                 .shadow(color: .black.opacity(0.18), radius: 8, y: 4)
         }
     }

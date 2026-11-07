@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct StillPlayerApp: App {
+struct HummeryApp: App {
     @StateObject private var model = AppModel()
     @StateObject private var themes = ThemeStore()
     @StateObject private var updater = AppUpdater()

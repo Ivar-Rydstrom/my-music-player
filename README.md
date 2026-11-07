@@ -1,4 +1,4 @@
-# Still
+# Hummery
 
 A native macOS music player built around playlists. SwiftUI renders the interface, and Music.app handles real playback and account sync through macOS automation. No paid developer membership is needed for this local setup. The independent MusicKit implementation is retained as an optional backend for later.
 
@@ -6,11 +6,13 @@ Requires macOS 14 or later. No third-party dependencies.
 
 ## Install
 
-Download `Still-<version>.dmg` from the [latest release](https://github.com/Ivar-Rydstrom/my-music-player/releases/latest), open it, and drag Still to Applications. Releases are signed with a self-signed certificate rather than an Apple Developer ID, so macOS blocks the first launch. Right-click Still and choose **Open**, or select **Open Anyway** under **System Settings > Privacy & Security**. This is needed once.
+Download `Hummery-<version>.dmg` from the [latest release](https://github.com/Ivar-Rydstrom/my-music-player/releases/latest), open it, and drag Hummery to Applications. Releases are signed with a self-signed certificate rather than an Apple Developer ID, so macOS blocks the first launch. Right-click Hummery and choose **Open**, or select **Open Anyway** under **System Settings > Privacy & Security**. This is needed once.
 
-After that, Still updates itself. It checks GitHub about once a day while open, and you can check from **Still > Check for Updates…** or **Settings > Updates**. Installing downloads the release zip, verifies its GitHub checksum, and confirms the new app is signed with the same certificate. Still then quits, replaces itself in place, and reopens. Settings and the Music Automation permission carry over because the signature stays the same. If macOS stops the replacement, Still says so on the next launch. Allow Still under **Privacy & Security > App Management**, or install the DMG manually.
+After that, Hummery updates itself. It checks GitHub about once a day while open, and you can check from **Hummery > Check for Updates…** or **Settings > Updates**. Installing downloads the release zip, verifies its GitHub checksum, and confirms the new app is signed with the same certificate. Hummery then quits, replaces itself in place, and reopens. Settings and the Music Automation permission carry over because the signature stays the same. If macOS stops the replacement, Hummery says so on the next launch. Allow Hummery under **Privacy & Security > App Management**, or install the DMG manually.
 
 Local development builds are ad hoc signed and can check for updates but don't install them.
+
+Hummery was called Still through version 0.1.0. Still can't update itself to Hummery because the app has a new bundle identifier, so install the Hummery DMG manually and delete Still. macOS asks for Automation permission again, and settings start fresh. Hummery hides the old "Still · Up Next" playlist; you can delete it in Music.
 
 ## Release
 
@@ -20,7 +22,7 @@ Releases are built by GitHub Actions. To publish one from an up-to-date, clean `
 zsh scripts/release.sh 0.2.0
 ```
 
-That pushes the tag `v0.2.0`. The [Release workflow](.github/workflows/release.yml) runs the tests, builds a universal Release app with that version and the run number as its build number, signs it, and publishes `Still-0.2.0.dmg`, `Still-0.2.0.zip`, and `SHA256SUMS.txt` with generated release notes. Tags with a suffix, such as `v0.3.0-beta.1`, become prereleases, and the updater ignores them. The [CI workflow](.github/workflows/ci.yml) runs the tests and a Release build on every pull request and push to `main`.
+That pushes the tag `v0.2.0`. The [Release workflow](.github/workflows/release.yml) runs the tests, builds a universal Release app with that version and the run number as its build number, signs it, and publishes `Hummery-0.2.0.dmg`, `Hummery-0.2.0.zip`, and `SHA256SUMS.txt` with generated release notes. Tags with a suffix, such as `v0.3.0-beta.1`, become prereleases, and the updater ignores them. The [CI workflow](.github/workflows/ci.yml) runs the tests and a Release build on every pull request and push to `main`.
 
 Signing uses one long-lived certificate kept in the repository's Actions secrets. Create it once with:
 
@@ -28,25 +30,25 @@ Signing uses one long-lived certificate kept in the repository's Actions secrets
 zsh scripts/create-signing-certificate.sh --upload
 ```
 
-This writes the certificate to `~/.still-release-signing`. Back that folder up. A new certificate would make installed copies reject updates, so they'd need a manual DMG install, and macOS would ask for Automation permission again. To build a release package locally, run `zsh scripts/build-release.sh 0.2.0`. It's ad hoc signed unless `STILL_SIGNING_IDENTITY` names a certificate hash in your keychain.
+This writes the certificate to `~/.hummery-release-signing`. Back that folder up. A new certificate would make installed copies reject updates, so they'd need a manual DMG install, and macOS would ask for Automation permission again. To build a release package locally, run `zsh scripts/build-release.sh 0.2.0`. It's ad hoc signed unless `HUMMERY_SIGNING_IDENTITY` names a certificate hash in your keychain.
 
 To try the updater against a local feed, launch a signed build with `--args -updates.feedURL http://127.0.0.1:8000/latest.json`. That file uses the GitHub release JSON format. Downloads still have to pass the signature check.
 
 ## Run locally and connect Music
 
-Open `StillPlayer.xcodeproj` in Xcode, select the StillPlayer scheme, and run. The project defaults to local ad hoc signing. Or build and launch from the terminal:
+Open `Hummery.xcodeproj` in Xcode, select the Hummery scheme, and run. The project defaults to local ad hoc signing. Or build and launch from the terminal:
 
 ```sh
 zsh scripts/run-local.sh
 ```
 
-Open **Settings** with Command-comma or the sidebar button, select **Connection**, then **Connect Music.app**. Allow Still to control Music when macOS prompts. Music must be signed into the account whose playlists you want to use. Enable Sync Library in Music for account changes to reach your other devices. Connecting only reads data and does not start playback.
+Open **Settings** with Command-comma or the sidebar button, select **Connection**, then **Connect Music.app**. Allow Hummery to control Music when macOS prompts. Music must be signed into the account whose playlists you want to use. Enable Sync Library in Music for account changes to reach your other devices. Connecting only reads data and does not start playback.
 
 To open the connection panel and attempt the read-only connection on launch, use `zsh scripts/run-local.sh --connect-music`. Close an older running build first so macOS launches the updated executable. Once a connection succeeds, it restores on later launches; **Use sample library** disables restoration and leaves Music's playback alone.
 
 The app has an Apple Events usage description and hardened-runtime Apple Events access. It isn't sandboxed: it's distributed outside the App Store and replaces itself during updates, which the App Sandbox doesn't allow. It does not request Accessibility access or automate mouse clicks. If you decline permission, enable it in **System Settings > Privacy & Security > Automation**, then reconnect. Local rebuilds can cause macOS to ask again because an ad hoc signature changes with the executable.
 
-Or run `swift run StillPlayer` for the sample interface. That executable is not a configured app bundle and intentionally rejects account connections.
+Or run `swift run Hummery` for the sample interface. That executable is not a configured app bundle and intentionally rejects account connections.
 
 Sample playback is simulated, with no audio files or streaming. The timer, seek, skip, queue edits, repeat, favorites, and sample playlist additions are interactive. Sample playlist additions reset when switching modes or restarting. Pins, sample favorites, last selected playlist, queue visibility, and appearance persist locally. Recently played contains up to 100 unique songs from the current session and can be cleared. It resets when changing library connections.
 
@@ -55,18 +57,18 @@ Sample playback is simulated, with no audio files or streaming. The timer, seek,
 - Playlists in the sidebar, with local pinning through the context menu and a playlist-name filter.
 - Song table with sortable columns, multiple selection, filtering, and track context menus.
 - Play and Shuffle playlist start the selected playlist directly in Music, keeping subsequent shuffle selections within that playlist.
-- Double-click a song to play it in Music, retaining its source playlist context. Music controls the subsequent playback order. Filtering or sorting Still's table does not reorder Music's playlist or Up Next. Single-click only selects.
+- Double-click a song to play it in Music, retaining its source playlist context. Music controls the subsequent playback order. Filtering or sorting Hummery's table does not reorder Music's playlist or Up Next. Single-click only selects.
 - Right-click tracks to favorite/unfavorite in Music or add to an editable playlist. Smart, subscription, and special playlists are excluded as addition targets. Additions can affect your real library; use a test playlist first.
 - Search with Command-K. Music.app mode searches your library. Catalog search stays in Music, accessible with the Open Music button. Sample mode uses fixtures; the optional MusicKit mode searches the library or catalog and returns up to 25 songs.
 - Space toggles playback when a text field isn't consuming the key. Command-P also toggles playback. Command-Left/Right skips songs, Command-R refreshes the library, and Command-Shift-U toggles the queue where supported.
 - The queue panel and toggle are hidden for Music.app playback because its actual Up Next queue is not scriptable. Queue insertion, movement, removal, and clearing remain available in sample and MusicKit modes. See [the capability investigation](docs/ui-polish.md).
-- A moon menu sets a 15, 30, 45, or 60 minute sleep timer. Playback pauses at the deadline. The timer continues with the main window closed while Still is running, and changing connections cancels it. Quitting Still cancels the timer.
+- A moon menu sets a 15, 30, 45, or 60 minute sleep timer. Playback pauses at the deadline. The timer continues with the main window closed while Hummery is running, and changing connections cancels it. Quitting Hummery cancels the timer.
 - Settings has six appearance presets and a custom theme editor. Drag across the color field, adjust color depth, and choose light or dark to generate companion colors automatically. Turn off Automatic palette for native color pickers and exact hex values. Changes apply live across windows and save on this Mac.
-- Music.app mode has a real Music volume slider. Playback position, current track, shuffle, repeat, volume, and favorite state are polled from Music. Closing Still or switching to samples does not stop Music.
+- Music.app mode has a real Music volume slider. Playback position, current track, shuffle, repeat, volume, and favorite state are polled from Music. Closing Hummery or switching to samples does not stop Music.
 
 Search opens separately, keeping the underlying playlist view intact. Playlist filter text and selections survive navigation during a session. Exact table scroll restoration and persistent column configuration are deferred.
 
-Music.app artwork is loaded from the source playlist and cached locally. Playback snapshots retain Music's current playlist so the player can use the same covers as the song table. Items without available artwork use generated placeholders. Library playlist reads use bulk Apple events rather than a network API. Playlist names, song metadata, and logs are not uploaded by Still. Music itself handles streaming and cloud sync.
+Music.app artwork is loaded from the source playlist and cached locally. Playback snapshots retain Music's current playlist so the player can use the same covers as the song table. Items without available artwork use generated placeholders. Library playlist reads use bulk Apple events rather than a network API. Playlist names, song metadata, and logs are not uploaded by Hummery. Music itself handles streaming and cloud sync.
 
 ## Optional independent MusicKit player
 

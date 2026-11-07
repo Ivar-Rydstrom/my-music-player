@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-    <key>CFBundleDisplayName</key><string>Still</string>
-    <key>CFBundleName</key><string>StillPlayer</string>
+    <key>CFBundleDisplayName</key><string>Hummery</string>
+    <key>CFBundleName</key><string>Hummery</string>
     <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
     <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
     <key>CFBundlePackageType</key><string>APPL</string>
@@ -10,7 +10,7 @@
     <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
     <key>LSMinimumSystemVersion</key><string>$(MACOSX_DEPLOYMENT_TARGET)</string>
     <key>NSHighResolutionCapable</key><true/>
-    <key>StillUpdateRepository</key><string>Ivar-Rydstrom/my-music-player</string>
-    <key>NSAppleEventsUsageDescription</key><string>Still controls Music to show your playlists, play the songs you choose, and update favorites or playlists when you request it.</string>
-    <key>NSAppleMusicUsageDescription</key><string>Still uses your Apple Music library to show playlists and play the music you choose. It changes favorites or playlists only when you request it.</string>
+    <key>HummeryUpdateRepository</key><string>Ivar-Rydstrom/my-music-player</string>
+    <key>NSAppleEventsUsageDescription</key><string>Hummery controls Music to show your playlists, play the songs you choose, and update favorites or playlists when you request it.</string>
+    <key>NSAppleMusicUsageDescription</key><string>Hummery uses your Apple Music library to show playlists and play the music you choose. It changes favorites or playlists only when you request it.</string>
 </dict></plist>

@@ -23,6 +23,6 @@ fi
 latest=$(git tag --list 'v*' --sort=-version:refname | sed -n 1p)
 print "Releasing $tag (previous: ${latest:-none})."
 
-git tag -a "$tag" -m "Still $version"
+git tag -a "$tag" -m "Hummery $version"
 git push origin "$tag"
 print "Pushed $tag. Follow the build with: gh run watch \$(gh run list --workflow Release --limit 1 --json databaseId --jq '.[0].databaseId')"

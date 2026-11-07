@@ -301,7 +301,7 @@ struct CommandPalette: View {
     private func footer(_ item: PaletteItem?) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "waveform").font(.system(size: 11, weight: .semibold)).foregroundStyle(theme.accent)
-            Text(palette.step.map { "\($0.breadcrumb) · \($0.subject)" } ?? "Still").font(.system(size: 12, weight: .medium)).foregroundStyle(theme.muted)
+            Text(palette.step.map { "\($0.breadcrumb) · \($0.subject)" } ?? "Hummery").font(.system(size: 12, weight: .medium)).foregroundStyle(theme.muted)
                 .lineLimit(1)
             Spacer()
             if let item {

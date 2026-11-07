@@ -111,7 +111,7 @@ final class AppModel: ObservableObject {
         let library = MusicAppLibrary()
         do {
             guard Bundle.main.object(forInfoDictionaryKey: "NSAppleEventsUsageDescription") != nil else {
-                throw LibraryFailure.message("Run the StillPlayer app bundle to connect to Music. Use scripts/run-local.sh or run the Xcode scheme. The bare Swift package executable is for samples.")
+                throw LibraryFailure.message("Run the Hummery app bundle to connect to Music. Use scripts/run-local.sh or run the Xcode scheme. The bare Swift package executable is for samples.")
             }
             connectionStatus = "Waiting for Music automation permission"
             record("Connecting to Music.app. No developer membership required.")

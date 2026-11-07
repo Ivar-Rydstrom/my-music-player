@@ -22,5 +22,5 @@ config.write_text(
     f"PRODUCT_BUNDLE_IDENTIFIER = {args.bundle_id}\n"
     "CODE_SIGN_IDENTITY = Apple Development\n"
 )
-print("Saved Config/Local.xcconfig. Run the StillPlayer scheme in Xcode.")
+print("Saved Config/Local.xcconfig. Run the Hummery scheme in Xcode.")
 print("MusicKit must be enabled for this exact App ID in the developer portal.")

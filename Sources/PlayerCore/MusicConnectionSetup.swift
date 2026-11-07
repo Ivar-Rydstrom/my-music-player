@@ -17,7 +17,7 @@ public struct MusicConnectionSetup: Sendable {
 
     public var issue: String? {
         if !isAppBundle || !hasUsageDescription {
-            return "Open and run StillPlayer.xcodeproj in Xcode. Account access requires the app bundle with its Apple Music permission description."
+            return "Open and run Hummery.xcodeproj in Xcode. Account access requires the app bundle with its Apple Music permission description."
         }
         if bundleID.isEmpty || bundleID.hasPrefix("com.example.") || bundleID.contains("yourname") {
             return "Choose your own bundle identifier in Config/Local.xcconfig, then register that exact App ID with MusicKit enabled in the Apple Developer portal."

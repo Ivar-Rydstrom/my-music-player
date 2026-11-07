@@ -21,7 +21,7 @@ struct DiagnosticsView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Label(model.usesMusicApp ? "Connected to Music.app" : "Use Music.app for playback", systemImage: "music.note")
                         .foregroundStyle(theme.accent)
-                    Text("Still reads your playlists and uses Music for playback in the background. Allow access when macOS asks.")
+                    Text("Hummery reads your playlists and uses Music for playback in the background. Allow access when macOS asks.")
                         .font(.callout).foregroundStyle(theme.muted)
                     Text(model.connectionStatus).font(.caption).foregroundStyle(theme.muted)
                     HStack {
@@ -35,7 +35,7 @@ struct DiagnosticsView: View {
                     Button("Automation settings") {
                         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")!)
                     }.font(.caption)
-                    Text("Connect only reads data. Favoriting and playlist additions happen when you choose them. Switching to samples or quitting Still leaves Music's playback running.")
+                    Text("Connect only reads data. Favoriting and playlist additions happen when you choose them. Switching to samples or quitting Hummery leaves Music's playback running.")
                         .font(.caption).foregroundStyle(theme.muted)
                 }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
             }

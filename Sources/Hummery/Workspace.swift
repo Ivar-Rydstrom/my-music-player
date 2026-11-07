@@ -79,7 +79,7 @@ final class Workspace: ObservableObject {
     /// The name shown in the sidebar's address bar.
     var contextTitle: String {
         if let resultsQuery { return resultsQuery.isEmpty ? "Search library" : "Results for “\(resultsQuery)”" }
-        guard let model else { return "Still" }
+        guard let model else { return "Hummery" }
         return Workspace.title(for: model.selectedID, in: model)
     }
 

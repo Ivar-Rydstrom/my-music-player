@@ -41,7 +41,7 @@ final class AppUpdater: ObservableObject {
 
     let currentVersion = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String).flatMap(AppVersion.init)
     let releasesPage: URL?
-    private let repository = Bundle.main.object(forInfoDictionaryKey: "StillUpdateRepository") as? String
+    private let repository = Bundle.main.object(forInfoDictionaryKey: "HummeryUpdateRepository") as? String
     private let defaults = UserDefaults.standard
     private var schedule: Task<Void, Never>?
 
@@ -57,7 +57,7 @@ final class AppUpdater: ObservableObject {
         if automaticallyChecks { scheduleChecks() }
     }
 
-    /// Checks shortly after launch, then about once a day while Still stays open.
+    /// Checks shortly after launch, then about once a day while Hummery stays open.
     private func scheduleChecks() {
         schedule?.cancel()
         schedule = Task { [weak self] in
@@ -85,7 +85,7 @@ final class AppUpdater: ObservableObject {
         do {
             var request = URLRequest(url: url, timeoutInterval: 20)
             request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-            request.setValue("Still-Updater", forHTTPHeaderField: "User-Agent")
+            request.setValue("Hummery-Updater", forHTTPHeaderField: "User-Agent")
             let (data, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             if status == 404 {
@@ -142,12 +142,12 @@ final class AppUpdater: ObservableObject {
         if show { prompt = .problem(title: title, detail: message) }
     }
 
-    /// The swap runs after Still quits, so a failure is only visible on the next launch.
+    /// The swap runs after Hummery quits, so a failure is only visible on the next launch.
     private func reportUnfinishedInstall() {
         guard let pending = defaults.string(forKey: Keys.pending) else { return }
         defaults.removeObject(forKey: Keys.pending)
         guard let target = AppVersion(pending), let currentVersion, currentVersion < target else { return }
-        report("macOS didn't let Still replace itself with version \(pending). Turn on Still under System Settings > Privacy & Security > App Management and try again, or install the DMG from GitHub.",
+        report("macOS didn't let Hummery replace itself with version \(pending). Turn on Hummery under System Settings > Privacy & Security > App Management and try again, or install the DMG from GitHub.",
             title: "The update didn't finish", show: true)
     }
 }
@@ -162,16 +162,16 @@ enum UpdateInstaller {
     /// Explains why an in-place install can't work for this copy, or nil when it can.
     static func blocker() -> String? {
         let app = Bundle.main.bundleURL
-        guard app.pathExtension == "app" else { return "Only the Still app bundle can install updates." }
+        guard app.pathExtension == "app" else { return "Only the Hummery app bundle can install updates." }
         if app.path.contains("/AppTranslocation/") {
-            return "macOS is running Still from a temporary location. Move Still to your Applications folder, open it from there, and try again."
+            return "macOS is running Hummery from a temporary location. Move Hummery to your Applications folder, open it from there, and try again."
         }
         if hostRequirement() == nil {
-            return "This is a local development build, so Still can't confirm a download comes from the same signer. Install a release from GitHub to get automatic updates."
+            return "This is a local development build, so Hummery can't confirm a download comes from the same signer. Install a release from GitHub to get automatic updates."
         }
         let folder = app.deletingLastPathComponent()
         guard FileManager.default.isWritableFile(atPath: folder.path) else {
-            return "Still can't write to \(folder.path). Move it to a folder you can change, such as Applications."
+            return "Hummery can't write to \(folder.path). Move it to a folder you can change, such as Applications."
         }
         return nil
     }
@@ -193,7 +193,7 @@ enum UpdateInstaller {
 
     static func download(_ release: AppRelease) async throws -> URL {
         var request = URLRequest(url: release.archiveURL, timeoutInterval: 120)
-        request.setValue("Still-Updater", forHTTPHeaderField: "User-Agent")
+        request.setValue("Hummery-Updater", forHTTPHeaderField: "User-Agent")
         let (temporary, response) = try await URLSession.shared.download(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard status == 200 else {
@@ -253,11 +253,11 @@ enum UpdateInstaller {
         let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode)
         let status = SecStaticCodeCheckValidityWithErrors(code, flags, requirement, nil)
         guard status == errSecSuccess else {
-            throw Failure("The downloaded app isn't signed by the same certificate as this copy of Still (OSStatus \(status)).")
+            throw Failure("The downloaded app isn't signed by the same certificate as this copy of Hummery (OSStatus \(status)).")
         }
     }
 
-    /// Starts a small script that waits for Still to quit, swaps the bundles, and reopens Still.
+    /// Starts a small script that waits for Hummery to quit, swaps the bundles, and reopens Hummery.
     /// If the swap fails, it restores the previous copy and opens that instead.
     static func replaceAfterExit(with replacement: URL) throws {
         let workspace = replacement.deletingLastPathComponent().deletingLastPathComponent()

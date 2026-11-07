@@ -2,13 +2,13 @@
 import PackageDescription
 
 let package = Package(
-    name: "StillPlayer",
+    name: "Hummery",
     platforms: [.macOS(.v14)],
-    products: [.executable(name: "StillPlayer", targets: ["StillPlayer"])],
+    products: [.executable(name: "Hummery", targets: ["Hummery"])],
     targets: [
         .target(name: "PlayerCore"),
-        .executableTarget(name: "StillPlayer", dependencies: ["PlayerCore"]),
+        .executableTarget(name: "Hummery", dependencies: ["PlayerCore"]),
         .testTarget(name: "PlayerCoreTests", dependencies: ["PlayerCore"]),
-        .testTarget(name: "StillPlayerTests", dependencies: ["StillPlayer", "PlayerCore"])
+        .testTarget(name: "HummeryTests", dependencies: ["Hummery", "PlayerCore"])
     ]
 )

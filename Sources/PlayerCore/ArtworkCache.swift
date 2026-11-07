@@ -11,7 +11,7 @@ public struct ArtworkCache {
     private var writes = 0
 
     public init(directory: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("StillPlayer/Artwork-v1"), lifetime: TimeInterval = 7 * 24 * 60 * 60, capacity: Int = 512) {
+        .appendingPathComponent("Hummery/Artwork-v1"), lifetime: TimeInterval = 7 * 24 * 60 * 60, capacity: Int = 512) {
         self.directory = directory
         self.lifetime = lifetime
         self.capacity = max(1, capacity)

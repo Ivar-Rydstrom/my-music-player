@@ -4,7 +4,7 @@ Settings opens from the gear, the sidebar button, or Command-comma. Appearance c
 
 Automatic palettes derive their surfaces and companion color from the selected color. Label colors and control accents use sRGB contrast calculations. Custom hex fields retain the last valid color while incomplete input is being edited. Exact background and surface colors remain under the user's control. Mixed light and dark custom surfaces can reduce text contrast; the editor recommends keeping them similarly bright. Accent controls adjust for readability, so the selected accent is also used unmodified in decorative gradients.
 
-The interaction takes inspiration from [Arc's color and gradient themes](https://start.arc.net/paint-the-internet). Still uses native SwiftUI controls and its own palette calculations.
+The interaction takes inspiration from [Arc's color and gradient themes](https://start.arc.net/paint-the-internet). Hummery uses native SwiftUI controls and its own palette calculations.
 
 ## Music.app queue investigation
 

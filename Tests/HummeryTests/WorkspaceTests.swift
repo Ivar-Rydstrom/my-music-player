@@ -1,6 +1,6 @@
 import XCTest
 import PlayerCore
-@testable import StillPlayer
+@testable import Hummery
 
 @MainActor final class WorkspaceTests: XCTestCase {
     private var model: AppModel!

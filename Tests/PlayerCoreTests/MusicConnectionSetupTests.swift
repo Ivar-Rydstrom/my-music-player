@@ -3,7 +3,7 @@ import XCTest
 
 final class MusicConnectionSetupTests: XCTestCase {
     private var configured: MusicConnectionSetup {
-        MusicConnectionSetup(bundleID: "com.listener.StillPlayer", teamID: "ABCDEFGHIJ",
+        MusicConnectionSetup(bundleID: "com.listener.Hummery", teamID: "ABCDEFGHIJ",
             hasSigningCertificate: true, hasUsageDescription: true, isAppBundle: true)
     }
     func testConfiguredBuildCanAttemptServiceConnection() {
@@ -21,7 +21,7 @@ final class MusicConnectionSetupTests: XCTestCase {
     }
     func testPlaceholderIdentifierIsRejectedEvenWhenSigned() {
         var setup = configured
-        setup.bundleID = "com.example.StillPlayer"
+        setup.bundleID = "com.example.Hummery"
         XCTAssertNotNil(setup.issue)
     }
     func testAdHocBuildIsRejectedEvenWithATeamString() {

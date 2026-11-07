@@ -21,26 +21,26 @@ final class AppUpdateTests: XCTestCase {
 
     func testNewerReleaseSelectsZipArchiveAndDigest() throws {
         let release = try decode(tag: "v0.3.0", assets: [
-            asset("Still-0.3.0.dmg"),
-            asset("Still-0.3.0.zip", digest: "sha256:" + String(repeating: "AB", count: 32))
+            asset("Hummery-0.3.0.dmg"),
+            asset("Hummery-0.3.0.zip", digest: "sha256:" + String(repeating: "AB", count: 32))
         ])
         let update = try XCTUnwrap(AppUpdateCheck.evaluate(release, current: XCTUnwrap(AppVersion("0.2.9"))))
         XCTAssertEqual(update.version.description, "0.3.0")
-        XCTAssertEqual(update.archiveURL.lastPathComponent, "Still-0.3.0.zip")
+        XCTAssertEqual(update.archiveURL.lastPathComponent, "Hummery-0.3.0.zip")
         XCTAssertEqual(update.archiveSHA256, String(repeating: "ab", count: 32))
         XCTAssertEqual(update.notes, "Notes")
     }
 
     func testSameOrOlderReleaseIsNotAnUpdate() throws {
-        let release = try decode(tag: "v0.3.0", assets: [asset("Still-0.3.0.zip")])
+        let release = try decode(tag: "v0.3.0", assets: [asset("Hummery-0.3.0.zip")])
         XCTAssertNil(try AppUpdateCheck.evaluate(release, current: XCTUnwrap(AppVersion("0.3"))))
         XCTAssertNil(try AppUpdateCheck.evaluate(release, current: XCTUnwrap(AppVersion("1.0.0"))))
     }
 
     func testPrereleasesAndDraftsAreIgnored() throws {
         let current = try XCTUnwrap(AppVersion("0.1.0"))
-        XCTAssertNil(try AppUpdateCheck.evaluate(decode(tag: "v0.2.0", prerelease: true, assets: [asset("Still-0.2.0.zip")]), current: current))
-        XCTAssertNil(try AppUpdateCheck.evaluate(decode(tag: "v0.2.0", draft: true, assets: [asset("Still-0.2.0.zip")]), current: current))
+        XCTAssertNil(try AppUpdateCheck.evaluate(decode(tag: "v0.2.0", prerelease: true, assets: [asset("Hummery-0.2.0.zip")]), current: current))
+        XCTAssertNil(try AppUpdateCheck.evaluate(decode(tag: "v0.2.0", draft: true, assets: [asset("Hummery-0.2.0.zip")]), current: current))
     }
 
     func testMalformedReleasesExplainTheProblem() throws {
@@ -48,13 +48,13 @@ final class AppUpdateTests: XCTestCase {
         XCTAssertThrowsError(try AppUpdateCheck.evaluate(decode(tag: "nightly", assets: []), current: current)) {
             XCTAssertEqual($0 as? AppUpdateError, .invalidVersion("nightly"))
         }
-        XCTAssertThrowsError(try AppUpdateCheck.evaluate(decode(tag: "v0.2.0", assets: [asset("Still-0.2.0.dmg")]), current: current)) {
+        XCTAssertThrowsError(try AppUpdateCheck.evaluate(decode(tag: "v0.2.0", assets: [asset("Hummery-0.2.0.dmg")]), current: current)) {
             XCTAssertEqual($0 as? AppUpdateError, .missingArchive("v0.2.0"))
         }
     }
 
     func testUpdateNotesDropTheFirstInstallParagraph() {
-        let body = "**First install:** open the DMG and drag Still to Applications.\r\n\r\n## What's Changed\r\n* Faster artwork\r\n\r\n**Full Changelog**: link"
+        let body = "**First install:** open the DMG and drag Hummery to Applications.\r\n\r\n## What's Changed\r\n* Faster artwork\r\n\r\n**Full Changelog**: link"
         XCTAssertEqual(AppUpdateCheck.updateNotes(body), "## What's Changed\n* Faster artwork\n\n**Full Changelog**: link")
         XCTAssertEqual(AppUpdateCheck.updateNotes("  Plain notes\n"), "Plain notes")
     }
@@ -81,7 +81,7 @@ final class AppUpdateTests: XCTestCase {
     }
 
     private func decode(tag: String, draft: Bool = false, prerelease: Bool = false, assets: [[String: Any]]) throws -> GitHubRelease {
-        let json: [String: Any] = ["tag_name": tag, "name": "Still", "body": "Notes\n", "html_url": "https://github.com/o/r/releases/tag/\(tag)",
+        let json: [String: Any] = ["tag_name": tag, "name": "Hummery", "body": "Notes\n", "html_url": "https://github.com/o/r/releases/tag/\(tag)",
             "draft": draft, "prerelease": prerelease, "assets": assets]
         return try JSONDecoder().decode(GitHubRelease.self, from: JSONSerialization.data(withJSONObject: json))
     }

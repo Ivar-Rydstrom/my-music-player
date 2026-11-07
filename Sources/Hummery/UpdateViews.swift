@@ -24,9 +24,9 @@ struct UpdatePrompt: ViewModifier {
             } message: { prompt in
                 switch prompt {
                 case .available(let release):
-                    Text("You have \(updater.currentVersion?.description ?? "an older version"). Still will quit, update, and reopen.\(excerpt(release.notes))")
+                    Text("You have \(updater.currentVersion?.description ?? "an older version"). Hummery will quit, update, and reopen.\(excerpt(release.notes))")
                 case .upToDate:
-                    Text("Still \(updater.currentVersion?.description ?? "") is the newest version.")
+                    Text("Hummery \(updater.currentVersion?.description ?? "") is the newest version.")
                 case .problem(_, let detail):
                     Text(detail)
                 }
@@ -46,7 +46,7 @@ struct UpdatePrompt: ViewModifier {
 
     private var title: String {
         switch updater.prompt {
-        case .available(let release): return "Still \(release.version) is available"
+        case .available(let release): return "Hummery \(release.version) is available"
         case .upToDate: return "You're up to date"
         case .problem(let title, _): return title
         case nil: return ""
@@ -73,7 +73,7 @@ struct UpdateSettingsView: View {
                 GroupBox {
                     VStack(alignment: .leading, spacing: 14) {
                         HStack(alignment: .firstTextBaseline) {
-                            Label("Still \(updater.currentVersion?.description ?? "development build")", systemImage: "shippingbox")
+                            Label("Hummery \(updater.currentVersion?.description ?? "development build")", systemImage: "shippingbox")
                                 .foregroundStyle(theme.accent)
                             Spacer()
                             if let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String {
@@ -95,7 +95,7 @@ struct UpdateSettingsView: View {
                             if let page = updater.releasesPage { Link("Release notes", destination: page).font(.callout) }
                         }
                         Toggle("Check for updates automatically", isOn: $updater.automaticallyChecks).toggleStyle(.switch)
-                        Text("Still checks about once a day while it's open. Installing replaces the app where it is and keeps your settings and Music permission.")
+                        Text("Hummery checks about once a day while it's open. Installing replaces the app where it is and keeps your settings and Music permission.")
                             .font(.caption).foregroundStyle(theme.muted)
                     }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
                 }

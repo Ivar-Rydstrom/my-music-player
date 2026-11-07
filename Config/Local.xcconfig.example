@@ -2,5 +2,5 @@
 // Use the team shown in Xcode > Settings > Accounts.
 DEVELOPMENT_TEAM = YOUR_TEAM_ID
 // Register this exact identifier and enable its MusicKit App Service.
-PRODUCT_BUNDLE_IDENTIFIER = com.yourname.StillPlayer
+PRODUCT_BUNDLE_IDENTIFIER = com.yourname.Hummery
 CODE_SIGN_IDENTITY = Apple Development

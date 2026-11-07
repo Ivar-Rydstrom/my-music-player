@@ -51,11 +51,11 @@ final class AppleMusicLibrary: LibraryServing {
         switch await MusicAuthorization.request() {
         case .authorized: break
         case .denied:
-            throw LibraryFailure.message("Music access was denied. Enable Still in System Settings > Privacy & Security > Media & Apple Music, then reconnect.")
+            throw LibraryFailure.message("Music access was denied. Enable Hummery in System Settings > Privacy & Security > Media & Apple Music, then reconnect.")
         case .restricted:
             throw LibraryFailure.message("Music access is restricted by account or device policy. Check Screen Time or device management settings.")
         case .notDetermined:
-            throw LibraryFailure.message("Music permission has not been granted. Activate Still and try connecting again.")
+            throw LibraryFailure.message("Music permission has not been granted. Activate Hummery and try connecting again.")
         @unknown default:
             throw LibraryFailure.message("macOS returned an unknown music permission status. Try connecting again.")
         }
