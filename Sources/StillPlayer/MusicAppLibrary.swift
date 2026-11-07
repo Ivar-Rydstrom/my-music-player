@@ -42,7 +42,7 @@ actor MusicAppBridge {
         let result = try execute(MusicAppScripts.playlists)
         return (0..<result.numberOfItems).compactMap { index in
             guard let row = result.atIndex(index + 1), let id = row.atIndex(1)?.stringValue,
-                  let name = row.atIndex(2)?.stringValue else { return nil }
+                  let name = row.atIndex(2)?.stringValue, name != MusicAppScripts.queuePlaylistName else { return nil }
             let editable = row.atIndex(3)?.booleanValue ?? false
             return MusicPlaylist(id: id, name: name, subtitle: editable ? "From your library" : "From your library · read-only playlist", artwork: URL(string: "music-artwork://playlist/\(id)"), canAddTracks: editable)
         }
@@ -159,7 +159,12 @@ final class MusicAppLibrary: LibraryServing {
     /// Polling never launches Music. Callers check `MusicAppProcess.isRunning` first.
     func snapshot() async throws -> MusicAppSnapshot { try await bridge.snapshot() }
     func play(_ track: LibraryTrack) async throws { try await send(MusicAppScripts.play(track)) }
-    func play(_ playlist: MusicPlaylist) async throws { try await send(MusicAppScripts.playPlaylist(id: playlist.id)) }
+    func play(_ playlist: MusicPlaylist, shuffled: Bool) async throws {
+        try await send(MusicAppScripts.playPlaylist(id: playlist.id, shuffled: shuffled))
+    }
+    func play(queue tracks: [LibraryTrack], shuffled: Bool) async throws {
+        try await send(MusicAppScripts.playQueue(tracks, shuffled: shuffled))
+    }
     func pause() async throws { try await send(MusicAppScripts.wrap("pause")) }
     func toggle() async throws { try await send(MusicAppScripts.wrap("playpause")) }
     func next() async throws { try await send(MusicAppScripts.wrap("next track")) }

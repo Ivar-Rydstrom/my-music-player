@@ -97,8 +97,9 @@ struct Sidebar: View {
     /// Only the playing list gets a mark; nothing else is promoted.
     private func isPlaying(_ id: String) -> Bool {
         guard let current = player.current else { return false }
-        if let source = current.sourcePlaylistID { return source == id }
-        return workspace.playingListID == id
+        // The list the app started playback from; otherwise the playlist Music reports.
+        if let context = player.contextID { return context == id }
+        return current.sourcePlaylistID == id
     }
 
     private var bottomBar: some View {

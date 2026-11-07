@@ -73,8 +73,51 @@ public enum MusicAppScripts {
         }
         return wrap("play \(ref)")
     }
-    public static func playPlaylist(id: String) throws -> String {
-        wrap("play (first playlist whose persistent ID is \(try identifier(id)))")
+    /// Music applies shuffle to the playlist it is playing, so it is set on both sides of `play`:
+    /// before, so a shuffled start picks a random first song; after, in case Music had no playlist to apply it to.
+    public static func playPlaylist(id: String, shuffled: Bool) throws -> String {
+        wrap("""
+            set shuffle enabled to \(shuffled)
+            play (first playlist whose persistent ID is \(try identifier(id)))
+            set shuffle enabled to \(shuffled)
+            """)
+    }
+
+    /// The playlist Still fills to play a list from a chosen song. Music only keeps a playlist
+    /// context (so Next stays in the list instead of Autoplay) when a playlist object is played,
+    /// and that always starts at its first song.
+    public static let queuePlaylistName = "Still · Up Next"
+
+    /// Replaces the queue playlist with `tracks`, in order, and plays it from the top (or shuffled).
+    public static func playQueue(_ tracks: [LibraryTrack], shuffled: Bool = false) throws -> String {
+        let name = literal(queuePlaylistName)
+        return wrap("""
+            if exists (first user playlist whose name is \(name)) then
+                set q to first user playlist whose name is \(name)
+            else
+                set q to make new user playlist with properties {name:\(name)}
+            end if
+            delete every track of q
+            \(try fill(tracks))
+            set shuffle enabled to \(shuffled)
+            play q
+            set shuffle enabled to \(shuffled)
+            """)
+    }
+    private static func fill(_ tracks: [LibraryTrack]) throws -> String {
+        let oneByOne = try tracks.map { "duplicate \(try reference($0)) to q" }.joined(separator: "\n")
+        // The common case, a playlist's tail in playlist order, is one Apple event instead of one per song.
+        guard let first = tracks.first, let playlistID = first.sourcePlaylistID, let start = first.sourceIndex, start > 0,
+              tracks.enumerated().allSatisfy({ $1.sourcePlaylistID == playlistID && $1.sourceIndex == start + $0 })
+        else { return oneByOne }
+        return """
+            set p to first playlist whose persistent ID is \(try identifier(playlistID))
+            if (count of tracks of p) is \(start + tracks.count - 1) and persistent ID of track \(start) of p is \(try identifier(first.id)) then
+                duplicate (tracks \(start) thru -1 of p) to q
+            else
+            \(oneByOne)
+            end if
+            """
     }
     public static func favorite(_ track: LibraryTrack, value: Bool) throws -> String {
         wrap("""

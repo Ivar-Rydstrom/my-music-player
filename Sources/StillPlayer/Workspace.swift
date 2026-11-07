@@ -50,8 +50,6 @@ final class Workspace: ObservableObject {
     /// The user's key bindings for every command.
     let shortcuts = ShortcutStore.shared
     @Published var pillExpanded = false
-    /// The list the user last started playing from, so the sidebar can mark it.
-    @Published var playingListID: String?
     @Published var showShortcuts = false
 
     var debugHoverRow: Int?
@@ -181,16 +179,18 @@ final class Workspace: ObservableObject {
         guard !rows.isEmpty else { return }
         let ids = selection
         let index = rows.firstIndex { ids.contains($0.id) } ?? 0
-        notePlaying()
-        model.perform { try await model.playback.play(rows.map(\.track), at: index) }
+        let context = listContext
+        model.perform { try await model.playback.play(rows.map(\.track), at: index, context: context) }
     }
 
-    private func notePlaying() { if resultsQuery == nil { playingListID = model?.selectedID } }
+    /// The list rows play from, so its Play button and sidebar mark know it's playing. Search
+    /// results aren't a list of their own.
+    private var listContext: String? { resultsQuery == nil ? model?.selectedID : nil }
 
     /// Opens the list a song came from and selects it there.
     func reveal(_ track: LibraryTrack) {
         guard let model else { return }
-        let target = track.sourcePlaylistID ?? playingListID
+        let target = track.sourcePlaylistID ?? model.playback.contextID
             ?? model.playlists.first { $0.tracks.contains { $0.id == track.id } }?.id
         guard let target else { return }
         select(target)
@@ -206,17 +206,28 @@ final class Workspace: ObservableObject {
         guard let model else { return }
         let rows = rows()
         let index = rows.firstIndex { $0.id == row.id } ?? 0
-        notePlaying()
-        model.perform { try await model.playback.play(rows.map(\.track), at: index) }
+        let context = listContext
+        model.perform { try await model.playback.play(rows.map(\.track), at: index, context: context) }
     }
 
+    /// Plays the open list from the top (in order, or shuffled).
     func playPlaylist(shuffled: Bool) {
         guard let model, !model.tracks.isEmpty else { return }
-        playingListID = model.selectedID
-        model.perform {
-            if shuffled { model.playback.shuffle = true }
-            try await model.playback.playPlaylist(model.playlist, tracks: model.tracks)
-        }
+        let context = model.selectedID
+        model.perform { try await model.playback.playPlaylist(model.playlist, tracks: model.tracks, context: context, shuffled: shuffled) }
+    }
+
+    /// Whether the open list is the one playing (or paused), so Play becomes pause/resume.
+    var isPlayingOpenList: Bool {
+        guard let model, resultsQuery == nil else { return false }
+        return model.playback.isCurrentContext(model.selectedID, tracks: model.tracks)
+    }
+
+    /// The header's Play button and the Play Playlist command: once this list is playing they pause
+    /// and resume it instead of restarting it from the top.
+    func playOrPauseOpenList() {
+        guard let model else { return }
+        if isPlayingOpenList { model.perform { try await model.playback.toggle() } } else { playPlaylist(shuffled: false) }
     }
 
     // MARK: Navigation
@@ -417,7 +428,7 @@ final class Workspace: ObservableObject {
         case .playPause, .playPauseQuick: if player.current != nil { model.perform { try await player.toggle() } }
         case .nextSong: model.perform { try await player.next() }
         case .previousSong: model.perform { try await player.previous() }
-        case .playPlaylist: playPlaylist(shuffled: false)
+        case .playPlaylist: playOrPauseOpenList()
         case .shufflePlaylist: playPlaylist(shuffled: true)
         case .favoriteCurrent: if let current = player.current { model.perform { try await model.favorite(current) } }
         case .volumeUp: if player.isMusicApp { player.setVolume(min(100, player.volume + 10)) }

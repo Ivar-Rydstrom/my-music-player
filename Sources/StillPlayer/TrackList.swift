@@ -114,6 +114,9 @@ struct TrackActionsMenu: View {
     var body: some View {
         if !tracks.isEmpty {
             Button(tracks.count == 1 ? "Play" : "Play \(tracks.count) songs", action: onPlay)
+            if let track = tracks.first, tracks.count == 1, model.playback.canPlayRelated {
+                Button("Play related") { model.perform { try await model.playback.playRelated(track) } }
+            }
             if model.playback.canEditQueue {
                 Button("Play next") { model.perform { try await model.playback.enqueue(tracks, next: true) } }
                 Button("Add to queue") { model.perform { try await model.playback.enqueue(tracks, next: false) } }

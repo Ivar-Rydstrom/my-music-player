@@ -110,7 +110,7 @@ final class PaletteTests: XCTestCase {
         XCTAssertEqual(PaletteCatalog.actions(for: song, context: context).map(\.title),
                        ["Play", "Play next", "Add to queue", "Favorite", "Add to playlist…", "Reveal in playlist"])
         XCTAssertEqual(PaletteCatalog.actions(for: song, context: musicApp).map(\.title),
-                       ["Play", "Favorite", "Add to playlist…", "Reveal in playlist"])
+                       ["Play", "Play related", "Favorite", "Add to playlist…", "Reveal in playlist"])
         XCTAssertNil(PaletteCatalog.secondary(for: song, context: musicApp))
     }
 

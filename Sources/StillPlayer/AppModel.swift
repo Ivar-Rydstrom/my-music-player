@@ -33,8 +33,8 @@ final class AppModel: ObservableObject {
     private var preferencePrefix: String { usesMusicApp ? "musicApp" : isLive ? "live" : "sample" }
 
     init() {
-        playback.$current.combineLatest(playback.$isPlaying)
-            .removeDuplicates { $0.0 == $1.0 && $0.1 == $1.1 }
+        playback.$current.combineLatest(playback.$isPlaying, playback.$contextID)
+            .removeDuplicates { $0 == $1 }
             .sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &subscriptions)
         playback.$errorMessage.compactMap { $0 }.sink { [weak self] message in
             self?.error = message

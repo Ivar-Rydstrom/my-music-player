@@ -17,7 +17,7 @@ enum PaletteCommand: Hashable {
     case settings(tab: String?), theme(String)
     case open(String)
     case playPlaylist(String, shuffled: Bool)
-    case play(LibraryTrack), playNext([LibraryTrack]), addToQueue([LibraryTrack])
+    case play(LibraryTrack), playRelated(LibraryTrack), playNext([LibraryTrack]), addToQueue([LibraryTrack])
     case favorite(LibraryTrack), reveal(LibraryTrack)
     case add([LibraryTrack], toPlaylist: String)
 }
@@ -303,6 +303,8 @@ enum PaletteCatalog {
                 list.append(action("next", "Next song", "forward.fill", .run(.next)))
             } else {
                 list.append(action("play", "Play", "play.fill", .run(.play(track)), shortcut: "↵"))
+                // Only Music continues a lone song with related songs (Autoplay).
+                if context.isMusicApp { list.append(action("related", "Play related", "dot.radiowaves.left.and.right", .run(.playRelated(track)))) }
             }
             if context.queueSupported && !isCurrent {
                 list.append(action("next", "Play next", "text.line.first.and.arrowtriangle.forward", .run(.playNext([track])), shortcut: "⌘↵"))

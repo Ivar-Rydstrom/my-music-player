@@ -20,6 +20,8 @@ final class PlaybackController: ObservableObject {
     @Published var repeatAll = false
     @Published private(set) var volume: Double = 50
     @Published private(set) var sleepUntil: Date?
+    /// The list (playlist, Favorites, Recently played) the app last started playback from.
+    @Published private(set) var contextID: String?
     @Published var errorMessage: String?
     private var demo = DemoQueue()
     private var nativeLibrary: AppleMusicLibrary?
@@ -44,7 +46,7 @@ final class PlaybackController: ObservableObject {
         generation = UUID(); musicApp = nil; pollingSuspended = false
         nativeLibrary = library
         demo = DemoQueue()
-        current = nil; upcoming = []; isPlaying = false; progress = 0
+        current = nil; upcoming = []; isPlaying = false; progress = 0; contextID = nil
         shuffle = false; repeatAll = false
     }
 
@@ -54,12 +56,25 @@ final class PlaybackController: ObservableObject {
         accept(snapshot)
     }
 
-    func play(_ tracks: [LibraryTrack], at offset: Int = 0) async throws {
+    /// Whether the current track is playing (or paused) from the given list, so its Play button
+    /// should pause and resume instead of restarting from the top.
+    func isCurrentContext(_ listID: String?, tracks: [LibraryTrack]) -> Bool {
+        guard let listID, let current, tracks.contains(where: { $0.id == current.id }) else { return false }
+        // Music reports its playing playlist, which also covers playlists started from Music itself.
+        return contextID == listID || current.sourcePlaylistID == listID
+    }
+
+    /// Plays `tracks` from `offset` through the end of the list, in order unless `shuffled`.
+    func play(_ tracks: [LibraryTrack], at offset: Int = 0, context: String? = nil, shuffled: Bool = false) async throws {
         guard !tracks.isEmpty else { return }
+        let offset = min(max(0, offset), tracks.count - 1)
+        shuffle = shuffled
         if let musicApp {
-            try await musicApp.setShuffle(shuffle)
-            try await musicApp.play(tracks[min(max(0, offset), tracks.count - 1)])
+            // Playing a single song in Music drops the list and lets Autoplay pick what follows.
+            try await musicApp.play(queue: Array(tracks[offset...]), shuffled: shuffled)
+            contextID = context
             await pollMusicApp()
+            return
         } else if let library = nativeLibrary {
             let songs = try tracks.map { track -> Song in
                 guard let song = library.songs[track.id] else {
@@ -75,20 +90,34 @@ final class PlaybackController: ObservableObject {
             if shuffle { demo.shuffleUpcoming() }
             progress = 0; isPlaying = true
         }
+        contextID = context
         lastTick = Date(); refresh()
     }
 
-    func playPlaylist(_ playlist: MusicPlaylist?, tracks: [LibraryTrack]) async throws {
+    /// Plays a whole list from its first song, or in random order when `shuffled`.
+    func playPlaylist(_ playlist: MusicPlaylist?, tracks: [LibraryTrack], context: String? = nil, shuffled: Bool = false) async throws {
         guard !tracks.isEmpty else { return }
         if let musicApp, let playlist {
             // Starting a shared cloud track alone can make Music shuffle the whole library.
             // Play the playlist object so Music owns the correct playback context.
-            try await musicApp.setShuffle(shuffle)
-            try await musicApp.play(playlist)
+            shuffle = shuffled
+            try await musicApp.play(playlist, shuffled: shuffled)
+            contextID = context
             await pollMusicApp()
         } else {
-            try await play(tracks)
+            try await play(tracks, context: context, shuffled: shuffled)
         }
+    }
+
+    /// Whether "Play related" is offered: only Music continues a lone song with related songs (Autoplay).
+    var canPlayRelated: Bool { isMusicApp }
+
+    /// Plays one song on its own so Music's Autoplay follows it with related songs.
+    func playRelated(_ track: LibraryTrack) async throws {
+        guard let musicApp else { return try await play([track]) }
+        try await musicApp.play(track)
+        contextID = nil
+        await pollMusicApp()
     }
 
     func toggle() async throws {

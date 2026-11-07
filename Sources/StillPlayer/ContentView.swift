@@ -209,6 +209,7 @@ struct ContentView: View {
         case .play(let track):
             if let row = workspace.rows().first(where: { $0.track.id == track.id }) { workspace.play(row: row) }
             else { model.perform { try await player.play([track]) } }
+        case .playRelated(let track): model.perform { try await player.playRelated(track) }
         case .playNext(let tracks):
             model.perform { try await player.enqueue(tracks, next: true); model.notice = tracks.count == 1 ? "\(tracks[0].title) plays next." : "\(tracks.count) songs play next." }
         case .addToQueue(let tracks):
@@ -259,8 +260,7 @@ struct ContentView: View {
             try? await Task.sleep(for: .milliseconds(60))
         }
         if args.contains("--demo-playing") {
-            workspace.playingListID = model.selectedID
-            try? await model.playback.play(model.tracks, at: 1)
+            try? await model.playback.play(model.tracks, at: 1, context: model.selectedID)
             model.playback.seek(83)
         }
         if let query = argument("--results") { workspace.showResults(for: query); try? await Task.sleep(for: .milliseconds(500)) }
@@ -429,8 +429,13 @@ struct PlaylistHeader: View {
             }
             Button { workspace.playPlaylist(shuffled: true) } label: { Label("Shuffle", systemImage: "shuffle") }
                 .buttonStyle(SoftCapsuleStyle(prominent: false)).help(shortcuts.hint("Shuffle", .shufflePlaylist)).disabled(model.tracks.isEmpty)
-            Button { workspace.playPlaylist(shuffled: false) } label: { Label("Play", systemImage: "play.fill") }
-                .buttonStyle(SoftCapsuleStyle(prominent: true)).help(shortcuts.hint("Play", .playPlaylist)).disabled(model.tracks.isEmpty)
+            let pauses = workspace.isPlayingOpenList && model.playback.isPlaying
+            Button { workspace.playOrPauseOpenList() } label: {
+                Label(pauses ? "Pause" : "Play", systemImage: pauses ? "pause.fill" : "play.fill").frame(minWidth: 44)
+            }
+            .buttonStyle(SoftCapsuleStyle(prominent: true))
+            .help(shortcuts.hint(pauses ? "Pause" : workspace.isPlayingOpenList ? "Resume" : "Play", .playPlaylist))
+            .disabled(model.tracks.isEmpty)
         }
         .padding(.leading, 22).padding(.trailing, 20).padding(.top, 22).padding(.bottom, 14)
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: workspace.filterVisible)

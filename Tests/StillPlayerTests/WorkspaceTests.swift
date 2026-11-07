@@ -120,4 +120,36 @@ import PlayerCore
         try await Task.sleep(for: .milliseconds(30))
         XCTAssertEqual(model.selectedID, "favorites")
     }
+
+    /// Waits for work started through `model.perform`, which runs in a Task.
+    private func settle(_ condition: () -> Bool) async {
+        for _ in 0..<100 where !condition() { try? await Task.sleep(for: .milliseconds(10)) }
+    }
+
+    func testTheOpenListsPlayButtonPausesAndResumesOnceItIsPlaying() async {
+        let player = model.playback
+        XCTAssertFalse(workspace.isPlayingOpenList)
+        workspace.playOrPauseOpenList()
+        await settle { player.isPlaying }
+        XCTAssertEqual(player.contextID, "demo-focus")
+        XCTAssertTrue(workspace.isPlayingOpenList)
+        let first = player.current
+
+        workspace.playOrPauseOpenList()
+        await settle { !player.isPlaying }
+        XCTAssertFalse(player.isPlaying, "Pauses instead of restarting")
+        workspace.playOrPauseOpenList()
+        await settle { player.isPlaying }
+        XCTAssertEqual(player.current, first, "Resumes the same song")
+
+        workspace.showResults(for: "frank")
+        XCTAssertFalse(workspace.isPlayingOpenList, "Search results aren't the playing list")
+    }
+
+    func testPlayingARowRecordsItsList() async {
+        let row = workspace.rows()[3]
+        workspace.play(row: row)
+        await settle { model.playback.current?.id == row.track.id }
+        XCTAssertEqual(model.playback.contextID, "demo-focus")
+    }
 }
