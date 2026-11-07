@@ -1,5 +1,6 @@
 import XCTest
 import SwiftUI
+import AppKit
 import PlayerCore
 @testable import StillPlayer
 
@@ -250,5 +251,26 @@ final class PaletteShortcutTests: XCTestCase {
     func testMenuFormMatchesTheStoredKey() {
         XCTAssertEqual(PaletteShortcut.standard.keyboardShortcut, KeyboardShortcut("p", modifiers: [.command, .shift]))
         XCTAssertNil(PaletteShortcut(keyCode: 122, key: "F1", modifiers: []).keyboardShortcut)
+    }
+
+    func testARemovedBindingStaysRemovedAndShowsOnNoMenu() {
+        XCTAssertNil(PaletteShortcut.stored(PaletteShortcut.unboundStorage), "Removed means no key at all")
+        XCTAssertEqual(PaletteShortcut.stored(PaletteShortcut.standard.storage), .standard)
+        XCTAssertEqual(PaletteShortcut.stored("garbage"), .standard, "Only an explicit removal unbinds; bad data falls back")
+        let custom = PaletteShortcut(keyCode: 40, key: "K", modifiers: [.command, .option])
+        XCTAssertEqual(PaletteShortcut.stored("garbage", default: custom), custom, "Each binding falls back to its own default")
+    }
+
+    @MainActor func testWithTheBindingRemovedThePaletteKeyNoLongerOpensThePalette() throws {
+        let defaults = UserDefaults.standard
+        let saved = defaults.string(forKey: PaletteShortcut.storageKey)
+        defer { if let saved { defaults.set(saved, forKey: PaletteShortcut.storageKey) } else { defaults.removeObject(forKey: PaletteShortcut.storageKey) } }
+        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .shift], timestamp: 0,
+                                                    windowNumber: 0, context: nil, characters: "P", charactersIgnoringModifiers: "p",
+                                                    isARepeat: false, keyCode: 35))
+        defaults.removeObject(forKey: PaletteShortcut.storageKey)
+        XCTAssertEqual(PaletteShortcut.current?.matches(event), true, "Unset means the ⇧⌘P default")
+        defaults.set(PaletteShortcut.unboundStorage, forKey: PaletteShortcut.storageKey)
+        XCTAssertNil(PaletteShortcut.current)
     }
 }

@@ -294,6 +294,29 @@ struct PillAction: View {
     }
 }
 
+/// A selection-bar item that opens a menu (used for Add to playlist, so it works without the palette).
+struct PillMenu<Content: View>: View {
+    @Environment(\.playerTheme) private var theme
+    var title: String
+    var icon: String
+    var compact: Bool
+    @ViewBuilder var content: () -> Content
+    @State private var hovering = false
+    var body: some View {
+        // A plain button-style menu draws its label as given, so it never looks disabled.
+        Menu(content: content) {
+            Group { if compact { Image(systemName: icon) } else { Label(title, systemImage: icon) } }
+                .font(.system(size: 12.5, weight: .medium)).foregroundStyle(theme.text)
+        }
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+        .padding(.horizontal, compact ? 8 : 10).frame(height: 28)
+        .background(hovering ? theme.text.opacity(0.07) : .clear, in: Capsule())
+        .contentShape(Capsule())
+        .help(title).accessibilityLabel(title)
+        .onHover { hovering = $0 }
+    }
+}
+
 /// The frosted chrome shared by the player pill and the selection capsule.
 func glassChrome<S: InsettableShape>(_ shape: S, theme: PlayerTheme) -> some View {
     shape.fill(.regularMaterial)

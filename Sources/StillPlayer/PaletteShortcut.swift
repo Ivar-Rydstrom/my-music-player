@@ -1,11 +1,14 @@
 import SwiftUI
 import AppKit
 
-/// The key that opens the command palette. ⇧⌘P by default; changed in Settings › Keyboard.
-/// Stored as text so `@AppStorage` views update when it changes: "<modifier flags>:<key code>:<key label>".
+/// A user-changeable key binding. The palette's is ⇧⌘P by default and is changed (or removed) in
+/// Settings › Keyboard. Stored as text so `@AppStorage` views update when it changes:
+/// "<modifier flags>:<key code>:<key label>", or "none" when the user removed the binding.
 struct PaletteShortcut: Equatable {
     static let storageKey = "palette.shortcut"
     static let standard = PaletteShortcut(keyCode: 35, key: "P", modifiers: [.command, .shift])
+    /// Stored when the user removes a binding. Distinct from "never set", which means the default.
+    static let unboundStorage = "none"
     static let relevantModifiers: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
 
     var keyCode: UInt16
@@ -19,9 +22,9 @@ struct PaletteShortcut: Equatable {
         self.modifiers = modifiers.intersection(Self.relevantModifiers)
     }
 
-    init(storage: String) {
+    init(storage: String, default fallback: PaletteShortcut = .standard) {
         let parts = storage.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
-        guard parts.count == 3, let flags = UInt(parts[0]), let code = UInt16(parts[1]), !parts[2].isEmpty else { self = .standard; return }
+        guard parts.count == 3, let flags = UInt(parts[0]), let code = UInt16(parts[1]), !parts[2].isEmpty else { self = fallback; return }
         self.init(keyCode: code, key: parts[2], modifiers: NSEvent.ModifierFlags(rawValue: flags))
     }
 
@@ -41,8 +44,14 @@ struct PaletteShortcut: Equatable {
         self.init(keyCode: event.keyCode, key: label, modifiers: event.modifierFlags)
     }
 
-    static var current: PaletteShortcut {
-        PaletteShortcut(storage: UserDefaults.standard.string(forKey: storageKey) ?? standard.storage)
+    /// The binding a stored value describes: nil when removed, the default when unreadable.
+    static func stored(_ storage: String, default fallback: PaletteShortcut = .standard) -> PaletteShortcut? {
+        storage == unboundStorage ? nil : PaletteShortcut(storage: storage, default: fallback)
+    }
+
+    /// The palette's binding right now, or nil if the user removed it.
+    static var current: PaletteShortcut? {
+        stored(UserDefaults.standard.string(forKey: storageKey) ?? standard.storage)
     }
 
     var storage: String { "\(modifiers.rawValue):\(keyCode):\(key)" }
@@ -101,9 +110,9 @@ struct PaletteShortcut: Equatable {
 }
 
 extension View {
-    /// Shows the palette shortcut on a menu item when SwiftUI can express it.
-    @ViewBuilder func paletteShortcut(_ shortcut: PaletteShortcut) -> some View {
-        if let keyboardShortcut = shortcut.keyboardShortcut { self.keyboardShortcut(keyboardShortcut) } else { self }
+    /// Shows a user binding on its menu item, or nothing when it's removed or SwiftUI can't express it.
+    @ViewBuilder func paletteShortcut(_ shortcut: PaletteShortcut?) -> some View {
+        if let keyboardShortcut = shortcut?.keyboardShortcut { self.keyboardShortcut(keyboardShortcut) } else { self }
     }
 }
 
@@ -115,7 +124,8 @@ final class ShortcutRecorder: ObservableObject {
     @Published var message: String?
     private var monitor: Any?
 
-    func start(onRecord: @escaping (PaletteShortcut) -> Void) {
+    /// `onRecord(nil)` means the user pressed ⌫ to remove the binding.
+    func start(onRecord: @escaping (PaletteShortcut?) -> Void) {
         stop()
         message = nil
         recording = true
@@ -123,7 +133,9 @@ final class ShortcutRecorder: ObservableObject {
             nonisolated(unsafe) let event = event
             MainActor.assumeIsolated {
                 guard let self else { return }
-                if event.keyCode == 53 && event.modifierFlags.intersection(PaletteShortcut.relevantModifiers).isEmpty { self.stop(); return }
+                let bare = event.modifierFlags.intersection(PaletteShortcut.relevantModifiers).isEmpty
+                if event.keyCode == 53 && bare { self.stop(); return }
+                if (event.keyCode == 51 || event.keyCode == 117) && bare { onRecord(nil); self.stop(); return }
                 guard let shortcut = PaletteShortcut(event: event) else { return }
                 if let problem = shortcut.problem { self.message = problem; return }
                 onRecord(shortcut)
@@ -142,53 +154,19 @@ final class ShortcutRecorder: ObservableObject {
 
 struct KeyboardSettingsView: View {
     @Environment(\.playerTheme) private var theme
-    @AppStorage(PaletteShortcut.storageKey) private var stored = PaletteShortcut.standard.storage
-    @StateObject private var recorder = ShortcutRecorder()
-
-    private var shortcut: PaletteShortcut { PaletteShortcut(storage: stored) }
+    @AppStorage(PaletteShortcut.storageKey) private var palette = PaletteShortcut.standard.storage
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("Keyboard").font(.system(size: 28, weight: .semibold, design: .rounded))
-                    Text("Still is built to be driven from the keyboard.").foregroundStyle(theme.muted)
+                    Text("Change a shortcut, or remove it. Everything stays reachable with the mouse.").foregroundStyle(theme.muted)
                 }
-                HStack(alignment: .center, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Command palette").font(.headline)
-                        Text("Search songs and playlists, change settings, control playback.")
-                            .font(.callout).foregroundStyle(theme.muted)
-                    }
-                    Spacer()
-                    if shortcut != .standard && !recorder.recording {
-                        Button("Reset") { stored = PaletteShortcut.standard.storage; recorder.message = nil }
-                            .buttonStyle(.plain).font(.callout).foregroundStyle(theme.accent)
-                            .help("Back to \(PaletteShortcut.standard.display)")
-                    }
-                    Button {
-                        if recorder.recording { recorder.stop() } else { recorder.start { stored = $0.storage } }
-                    } label: {
-                        Text(recorder.recording ? "Type a shortcut…" : shortcut.display)
-                            .font(.system(size: 14, weight: .medium, design: .rounded))
-                            .foregroundStyle(recorder.recording ? theme.muted : theme.text)
-                            .frame(minWidth: 150, minHeight: 34)
-                            .background(theme.text.opacity(theme.isDark ? 0.08 : 0.05), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                .strokeBorder(recorder.recording ? theme.accent : theme.text.opacity(0.12), lineWidth: recorder.recording ? 1.5 : 1))
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help(recorder.recording ? "Press the new shortcut, or Esc to cancel" : "Click, then press a new shortcut")
-                    .accessibilityLabel("Command palette shortcut, \(shortcut.display). Click to change.")
-                }
-                .padding(16)
-                .background(theme.surface, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-                if let message = recorder.message {
-                    Label(message, systemImage: "exclamationmark.circle").font(.callout).foregroundStyle(theme.accent)
-                } else if recorder.recording {
-                    Text("Press the keys together. Esc cancels.").font(.callout).foregroundStyle(theme.muted)
-                }
+                ShortcutSettingRow(title: "Command palette",
+                                   detail: "Search songs and playlists, change settings, control playback.",
+                                   unboundNote: "Open it from the address bar at the top of the sidebar, or Edit › Command Palette.",
+                                   storage: $palette, standard: .standard)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Inside the palette").font(.headline)
                     hint("Move", "↑  ↓")
@@ -203,7 +181,6 @@ struct KeyboardSettingsView: View {
             }
             .padding(28)
         }
-        .onDisappear { recorder.stop() }
     }
 
     private func hint(_ title: String, _ keys: String) -> some View {
@@ -212,5 +189,76 @@ struct KeyboardSettingsView: View {
             Spacer()
             HStack(spacing: 4) { ForEach(keys.components(separatedBy: "  "), id: \.self) { KeyCap($0) } }
         }
+    }
+}
+
+/// One changeable binding: click the field and press keys to change it, ⌫ (or the ✕) to remove it,
+/// and Reset to go back to the default. Every user binding in the app should use this row.
+struct ShortcutSettingRow: View {
+    @Environment(\.playerTheme) private var theme
+    var title: String
+    var detail: String
+    /// Shown while the binding is removed: how to reach the feature without a key.
+    var unboundNote: String
+    @Binding var storage: String
+    var standard: PaletteShortcut
+    @StateObject private var recorder = ShortcutRecorder()
+
+    private var shortcut: PaletteShortcut? { PaletteShortcut.stored(storage, default: standard) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).font(.headline)
+                    Text(detail).font(.callout).foregroundStyle(theme.muted)
+                }
+                Spacer()
+                if shortcut != standard && !recorder.recording {
+                    Button("Reset") { storage = standard.storage; recorder.message = nil }
+                        .buttonStyle(.plain).font(.callout).foregroundStyle(theme.accent)
+                        .help("Back to \(standard.display)")
+                }
+                field
+            }
+            if let message = recorder.message {
+                Label(message, systemImage: "exclamationmark.circle").font(.callout).foregroundStyle(theme.accent)
+            } else if recorder.recording {
+                Text("Press the keys together. ⌫ removes the shortcut, Esc cancels.").font(.callout).foregroundStyle(theme.muted)
+            } else if shortcut == nil {
+                Text("No shortcut. \(unboundNote)").font(.callout).foregroundStyle(theme.muted)
+            }
+        }
+        .padding(16)
+        .background(theme.surface, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .onDisappear { recorder.stop() }
+    }
+
+    private var field: some View {
+        HStack(spacing: 0) {
+            Button {
+                if recorder.recording { recorder.stop() } else { recorder.start { storage = $0?.storage ?? PaletteShortcut.unboundStorage } }
+            } label: {
+                Text(recorder.recording ? "Type a shortcut…" : shortcut?.display ?? "None")
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundStyle(recorder.recording || shortcut == nil ? theme.muted : theme.text)
+                    .frame(maxWidth: .infinity, minHeight: 34)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(recorder.recording ? "Press the new shortcut. ⌫ removes it, Esc cancels." : "Click, then press a new shortcut")
+            .accessibilityLabel("\(title) shortcut, \(shortcut?.display ?? "none"). Click to change.")
+            if shortcut != nil && !recorder.recording {
+                Button { storage = PaletteShortcut.unboundStorage; recorder.message = nil } label: {
+                    Image(systemName: "xmark.circle.fill").font(.system(size: 13)).foregroundStyle(theme.muted)
+                        .frame(width: 28, height: 34).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).help("Remove shortcut").accessibilityLabel("Remove \(title) shortcut")
+            }
+        }
+        .frame(width: 170)
+        .background(theme.text.opacity(theme.isDark ? 0.08 : 0.05), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .strokeBorder(recorder.recording ? theme.accent : theme.text.opacity(0.12), lineWidth: recorder.recording ? 1.5 : 1))
     }
 }

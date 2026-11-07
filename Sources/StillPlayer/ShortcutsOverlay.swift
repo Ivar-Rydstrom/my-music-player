@@ -6,16 +6,17 @@ struct ShortcutsOverlay: View {
     var queueSupported: Bool
     var musicVolume: Bool
     @AppStorage(PaletteShortcut.storageKey) private var paletteShortcut = PaletteShortcut.standard.storage
-    private var paletteKey: String { PaletteShortcut(storage: paletteShortcut).display }
+    private var paletteKey: String? { PaletteShortcut.stored(paletteShortcut)?.display }
 
     private var groups: [(String, [(String, String)])] {
         var playback = [("Play / pause", "Space  ⌘P"), ("Next / previous song", "⌘→  ⌘←"), ("Play playlist", "⌘↩"),
                         ("Shuffle playlist", "⇧⌘↩"), ("Favorite current song", "⌘L")]
         if musicVolume { playback.append(("Music volume", "⌘↑  ⌘↓")) }
         return [
-            ("Palette", [("Search and commands", paletteKey), ("Move / run", "↑  ↓  ↩"), ("Actions for a result", "⌘K  →"),
+            ("Palette", [("Search and commands", paletteKey ?? "none"), ("Move / run", "↑  ↓  ↩"), ("Actions for a result", "⌘K  →"),
                          ("Play next / shuffle", "⌘↩"), ("Back a step, then close", "⌫  esc")]),
             ("Go", [("Back / forward", "⌘[  ⌘]"), ("Next / previous playlist", "⌥⌘↓  ⌥⌘↑"), ("Filter this playlist", "⌘F"),
+                    ("Search whole library", "⇧⌘F"),
                     ("Reveal current song", "⌘J")]),
             ("Songs", [("Play selected", "↩"), ("Actions for selected song", "⌘K"), ("Extend selection", "⇧↑  ⇧↓"),
                        ("Select all", "⌘A"), ("Clear selection", "esc")]),
@@ -39,7 +40,8 @@ struct ShortcutsOverlay: View {
                     column(Array(groups.prefix(3)))
                     column(Array(groups.dropFirst(3)))
                 }
-                Text("Every command is also in the palette (\(paletteKey)), with its shortcut beside it. Change the palette key in Settings › Keyboard.").font(.system(size: 12)).foregroundStyle(theme.muted)
+                Text(paletteKey.map { "Every command is also in the palette (\($0)), with its shortcut beside it. Change or remove that key in Settings › Keyboard." }
+                     ?? "The palette has no shortcut; open it from the sidebar's address bar. Set one in Settings › Keyboard.").font(.system(size: 12)).foregroundStyle(theme.muted)
             }
             .padding(24)
             .frame(width: 640)

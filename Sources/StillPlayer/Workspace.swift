@@ -29,6 +29,9 @@ final class Workspace: ObservableObject {
     @Published var resultsQuery: String?
     @Published var filterVisible = false
     @Published var filterFocusRequest = 0
+    /// Library search without the palette (⇧⌘F): the results view's own search field.
+    @Published var searchFocusRequest = 0
+    var searchFocused = false
     @Published var scrollRequest: String?
     var filterFocused = false
     private var anchorRow: String?
@@ -75,7 +78,7 @@ final class Workspace: ObservableObject {
 
     /// The name shown in the sidebar's address bar.
     var contextTitle: String {
-        if let resultsQuery { return "Results for “\(resultsQuery)”" }
+        if let resultsQuery { return resultsQuery.isEmpty ? "Search library" : "Results for “\(resultsQuery)”" }
         guard let model else { return "Still" }
         return Workspace.title(for: model.selectedID, in: model)
     }
@@ -269,6 +272,19 @@ final class Workspace: ObservableObject {
         selections["search"] = []
     }
 
+    /// ⇧⌘F, or "Search all music" from an empty filter: searches the whole library in the card,
+    /// with no palette involved.
+    func searchLibrary(_ query: String = "") {
+        filterVisible = false
+        showResults(for: query)
+        searchFocusRequest += 1
+    }
+
+    /// Escape in the library search field: clear the text first, then leave the results.
+    func escapeSearch() {
+        if let query = resultsQuery, !query.isEmpty { resultsQuery = "" } else { resultsQuery = nil; window?.makeFirstResponder(nil) }
+    }
+
     // MARK: Frame
 
     func toggleSidebar() {
@@ -328,7 +344,7 @@ final class Workspace: ObservableObject {
         let key = event.keyCode
 
         // The configurable palette shortcut wins over everything, so it can also close the palette.
-        if PaletteShortcut.current.matches(event) { togglePalette(); return true }
+        if let shortcut = PaletteShortcut.current, shortcut.matches(event) { togglePalette(); return true }
         if palette.isOpen { return palette.handle(key: key, flags: flags, characters: event.charactersIgnoringModifiers) }
 
         if showShortcuts {
@@ -344,6 +360,17 @@ final class Workspace: ObservableObject {
                 if selection.isEmpty { moveSelection(1) }
                 playSelection(); return true
             case 53: escapeFilter(); return true
+            default: return false
+            }
+        }
+        if editing && searchFocused {
+            switch key {
+            case 125 where flags.isEmpty || flags == .shift: moveSelection(1, extend: flags == .shift); return true
+            case 126 where flags.isEmpty || flags == .shift: moveSelection(-1, extend: flags == .shift); return true
+            case 36 where flags.isEmpty, 76 where flags.isEmpty:
+                if selection.isEmpty { moveSelection(1) }
+                playSelection(); return true
+            case 53: escapeSearch(); return true
             default: return false
             }
         }

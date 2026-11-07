@@ -31,9 +31,10 @@ struct StillPlayerApp: App {
             }
             CommandGroup(replacing: .textEditing) {
                 // The key itself is handled by the window's key monitor; this shows it on the menu.
-                Button("Command Palette…") { workspace.togglePalette() }.paletteShortcut(PaletteShortcut(storage: paletteShortcut))
+                Button("Command Palette…") { workspace.togglePalette() }.paletteShortcut(PaletteShortcut.stored(paletteShortcut))
                 Button("Actions for Selected Song…") { workspace.showActionsForSelection() }.keyboardShortcut("k", modifiers: [.command])
                 Button("Filter This Playlist") { workspace.revealFilter() }.keyboardShortcut("f", modifiers: [.command])
+                Button("Search Library…") { workspace.searchLibrary() }.keyboardShortcut("f", modifiers: [.command, .shift])
             }
             CommandMenu("Go") {
                 Button("Back") { workspace.goBack() }.keyboardShortcut("[", modifiers: [.command]).disabled(!workspace.canGoBack)
@@ -58,6 +59,11 @@ struct StillPlayerApp: App {
                 Button("Favorite Current Song") {
                     if let current = model.playback.current { model.perform { try await model.favorite(current) } }
                 }.keyboardShortcut("l", modifiers: [.command]).disabled(model.playback.current == nil)
+                if let current = model.playback.current {
+                    AddToPlaylistMenu(model: model, tracks: [current], title: "Add Current Song to Playlist")
+                } else {
+                    Button("Add Current Song to Playlist") {}.disabled(true)
+                }
                 Divider()
                 Button("Volume Up") { model.playback.setVolume(min(100, model.playback.volume + 10)) }
                     .keyboardShortcut(.upArrow, modifiers: [.command]).disabled(!model.playback.isMusicApp)

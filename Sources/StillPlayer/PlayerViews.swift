@@ -141,7 +141,9 @@ struct FloatingPlayer: View {
                     model.perform { try await player.enqueue(tracks, next: false) }
                 }
             }
-            PillAction(title: "Add to playlist…", icon: "text.badge.plus", compact: compact) { workspace.addToPlaylist(tracks) }
+            PillMenu(title: "Add to playlist", icon: "text.badge.plus", compact: compact) {
+                AddToPlaylistMenu(model: model, tracks: tracks).playlistButtons
+            }
             PillAction(title: "Favorite", icon: "star", compact: compact) { favoriteAll(model: model, tracks: tracks) }
             Rectangle().fill(theme.text.opacity(0.12)).frame(width: 1, height: 18).padding(.horizontal, 4)
             Button { withAnimation(Self.morph) { workspace.selection = [] } } label: {
@@ -205,6 +207,11 @@ struct FloatingPlayer: View {
                 }
                 Spacer(minLength: 0)
                 if let current = player.current {
+                    Menu { AddToPlaylistMenu(model: model, tracks: [current]).playlistButtons } label: {
+                        Image(systemName: "text.badge.plus").font(.system(size: 15)).foregroundStyle(theme.accent)
+                    }
+                    .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+                    .help("Add to playlist").accessibilityLabel("Add current song to a playlist")
                     Button { model.perform { try await model.favorite(current) } } label: {
                         Image(systemName: model.favorites.contains(current.id) ? "star.fill" : "star").font(.system(size: 16))
                     }

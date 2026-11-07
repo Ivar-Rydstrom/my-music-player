@@ -131,13 +131,13 @@ struct AddressBar: View {
     @State private var hovering = false
     @AppStorage(PaletteShortcut.storageKey) private var paletteShortcut = PaletteShortcut.standard.storage
     var body: some View {
-        let key = PaletteShortcut(storage: paletteShortcut).display
+        let key = PaletteShortcut.stored(paletteShortcut)?.display
         Button { workspace.openPalette() } label: {
             HStack(spacing: 8) {
                 Text(workspace.contextTitle).font(.system(size: 13, weight: .medium)).lineLimit(1)
                     .foregroundStyle(theme.frameInk.opacity(0.85))
                 Spacer(minLength: 4)
-                if hovering {
+                if hovering, let key {
                     Text(key).font(.system(size: 11, weight: .medium, design: .rounded)).foregroundStyle(theme.frameMuted)
                         .transition(.opacity)
                 }
@@ -148,7 +148,7 @@ struct AddressBar: View {
         }
         .buttonStyle(.plain)
         .onHover { inside in withAnimation(.easeOut(duration: 0.12)) { hovering = inside } }
-        .help("Search or run a command (\(key))")
+        .help(key.map { "Search or run a command (\($0))" } ?? "Search or run a command")
         .accessibilityLabel("\(workspace.contextTitle). Open command palette")
     }
 }

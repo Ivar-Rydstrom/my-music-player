@@ -350,18 +350,22 @@ struct ContentCard: View {
 
     @ViewBuilder private var emptyState: some View {
         if workspace.isShowingResults {
-            if model.searching { ProgressView() } else { ContentUnavailableView.search(text: workspace.resultsQuery ?? "") }
+            if model.searching { ProgressView() }
+            else if (workspace.resultsQuery ?? "").trimmingCharacters(in: .whitespaces).isEmpty {
+                ContentUnavailableView("Search your library", systemImage: "magnifyingglass",
+                                       description: Text("Type a song, artist or album. ↓ moves into the results, Return plays."))
+            } else { ContentUnavailableView.search(text: workspace.resultsQuery ?? "") }
         } else if !workspace.filterText.isEmpty {
             ContentUnavailableView {
                 Label("Nothing in \(listTitle) matches", systemImage: "line.3.horizontal.decrease")
             } description: {
-                Text("Search everything with \(PaletteShortcut.current.display).")
+                Text("Search your whole library with ⇧⌘F.")
             } actions: {
-                Button("Search all music") { workspace.openPalette(query: workspace.filterText) }
+                Button("Search all music for “\(workspace.filterText)”") { workspace.searchLibrary(workspace.filterText) }
             }
         } else {
             ContentUnavailableView(model.selectedID == "recent" ? "Nothing played yet" : "No songs here yet", systemImage: "music.note",
-                description: Text("Pick a playlist on the left, or press \(PaletteShortcut.current.display) to search."))
+                description: Text("Pick a playlist on the left, or press ⇧⌘F to search your library."))
         }
     }
 }
@@ -482,23 +486,30 @@ struct ResultsHeader: View {
     @Environment(\.playerTheme) private var theme
     @ObservedObject var model: AppModel
     @ObservedObject var workspace: Workspace
+    @FocusState private var focused: Bool
     var body: some View {
+        let query = workspace.resultsQuery ?? ""
         HStack(alignment: .center, spacing: 16) {
             Image(systemName: "magnifyingglass").font(.system(size: 22, weight: .semibold)).foregroundStyle(theme.buttonInk)
                 .frame(width: 64, height: 64)
                 .background(theme.accent, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             VStack(alignment: .leading, spacing: 5) {
-                Text("“\(workspace.resultsQuery ?? "")”").font(.system(size: 24, weight: .bold, design: .rounded)).lineLimit(1)
-                Text(model.searching ? "Searching…" : "\(model.searchResults.count) songs in your \(model.usesMusicApp ? "Music library" : "library")")
+                TextField("Search your library", text: Binding(get: { workspace.resultsQuery ?? "" }, set: { workspace.resultsQuery = $0 }))
+                    .textFieldStyle(.plain).font(.system(size: 24, weight: .bold, design: .rounded))
+                    .focused($focused).accessibilityLabel("Search your library")
+                Text(query.isEmpty ? "Songs, artists and albums in your \(model.usesMusicApp ? "Music library" : "library")"
+                     : model.searching ? "Searching…" : "\(model.searchResults.count) songs in your \(model.usesMusicApp ? "Music library" : "library")")
                     .font(.system(size: 12.5)).foregroundStyle(theme.muted)
             }
             Spacer()
-            Button { workspace.openPalette(query: workspace.resultsQuery ?? "") } label: { Label("Edit search", systemImage: "magnifyingglass") }
-                .buttonStyle(SoftCapsuleStyle(prominent: false)).help("Search again (\(PaletteShortcut.current.display))")
-            Button { workspace.resultsQuery = nil } label: { Label("Back", systemImage: "arrow.uturn.backward") }
+            Button { workspace.resultsQuery = nil } label: { Label("Done", systemImage: "arrow.uturn.backward") }
                 .buttonStyle(SoftCapsuleStyle(prominent: false)).help("Back to \(Workspace.title(for: model.selectedID, in: model)) (Esc)")
         }
         .padding(.leading, 22).padding(.trailing, 20).padding(.top, 22).padding(.bottom, 14)
+        .onAppear { if workspace.searchFocusRequest > 0 && query.isEmpty { DispatchQueue.main.async { focused = true } } }
+        .onChange(of: workspace.searchFocusRequest) { _, _ in DispatchQueue.main.async { focused = true } }
+        .onChange(of: focused) { _, value in workspace.searchFocused = value }
+        .onDisappear { workspace.searchFocused = false }
     }
 }
 
