@@ -24,27 +24,27 @@ jobs:
 
       - name: Import the release signing certificate
         env:
-          P12_BASE64: ${{ secrets.STILL_SIGNING_P12_BASE64 }}
-          P12_PASSWORD: ${{ secrets.STILL_SIGNING_P12_PASSWORD }}
+          P12_BASE64: ${{ secrets.HUMMERY_SIGNING_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.HUMMERY_SIGNING_P12_PASSWORD }}
         run: |
           if [[ -z "$P12_BASE64" || -z "$P12_PASSWORD" ]]; then
-            echo "::error::Missing STILL_SIGNING_P12_BASE64 or STILL_SIGNING_P12_PASSWORD. Run scripts/create-signing-certificate.sh --upload."
+            echo "::error::Missing HUMMERY_SIGNING_P12_BASE64 or HUMMERY_SIGNING_P12_PASSWORD. Run scripts/create-signing-certificate.sh --upload."
             exit 1
           fi
-          keychain="$RUNNER_TEMP/still-signing.keychain-db"
+          keychain="$RUNNER_TEMP/hummery-signing.keychain-db"
           keychain_password="$(uuidgen)"
-          echo "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/still-signing.p12"
+          echo "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/hummery-signing.p12"
           security create-keychain -p "$keychain_password" "$keychain"
           security set-keychain-settings -lut 3600 "$keychain"
           security unlock-keychain -p "$keychain_password" "$keychain"
-          security import "$RUNNER_TEMP/still-signing.p12" -k "$keychain" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security import "$RUNNER_TEMP/hummery-signing.p12" -k "$keychain" -P "$P12_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" >/dev/null
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | xargs)
-          rm "$RUNNER_TEMP/still-signing.p12"
+          rm "$RUNNER_TEMP/hummery-signing.p12"
           # Self-signed, so it's listed as untrusted; codesign accepts it by hash.
           identity=$(security find-identity -p codesigning "$keychain" | awk '/\)/ { print $2; exit }')
           [[ -n "$identity" ]] || { echo "::error::No signing identity in the imported certificate."; exit 1; }
-          echo "STILL_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "HUMMERY_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
 
       - name: Build, sign, and package
         run: zsh scripts/build-release.sh "$GITHUB_REF_NAME" "$GITHUB_RUN_NUMBER"
@@ -56,9 +56,9 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           flags=()
           [[ "$version" == *-* ]] && flags+=(--prerelease)
-          gh release create "$GITHUB_REF_NAME" dist/* --title "Still $version" --generate-notes "${flags[@]}" \
-            --notes "**First install:** open \`Still-$version.dmg\`, drag Still to Applications, then right-click it and choose Open (or allow it under System Settings > Privacy & Security). Still updates itself after that."
+          gh release create "$GITHUB_REF_NAME" dist/* --title "Hummery $version" --generate-notes "${flags[@]}" \
+            --notes "**First install:** open \`Hummery-$version.dmg\`, drag Hummery to Applications, then right-click it and choose Open (or allow it under System Settings > Privacy & Security). Hummery updates itself after that."
 
       - name: Remove the signing keychain
         if: always()
-        run: security delete-keychain "$RUNNER_TEMP/still-signing.keychain-db" 2>/dev/null || true
+        run: security delete-keychain "$RUNNER_TEMP/hummery-signing.keychain-db" 2>/dev/null || true

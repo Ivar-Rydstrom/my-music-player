@@ -83,10 +83,16 @@ public enum MusicAppScripts {
             """)
     }
 
-    /// The playlist Still fills to play a list from a chosen song. Music only keeps a playlist
+    /// The playlist Hummery fills to play a list from a chosen song. Music only keeps a playlist
     /// context (so Next stays in the list instead of Autoplay) when a playlist object is played,
     /// and that always starts at its first song.
-    public static let queuePlaylistName = "Still · Up Next"
+    public static let queuePlaylistName = "Hummery · Up Next"
+    /// Queue playlists made before the app was renamed. They stay in Music, so keep them out of the sidebar.
+    static let legacyQueuePlaylistNames: Set<String> = ["Still · Up Next"]
+
+    public static func isQueuePlaylist(_ name: String) -> Bool {
+        name == queuePlaylistName || legacyQueuePlaylistNames.contains(name)
+    }
 
     /// Replaces the queue playlist with `tracks`, in order, and plays it from the top (or shuffled).
     public static func playQueue(_ tracks: [LibraryTrack], shuffled: Bool = false) throws -> String {

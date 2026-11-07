@@ -81,7 +81,7 @@ public enum AppUpdateError: LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .invalidVersion(let tag): return "The latest release tag \"\(tag)\" isn't a version number."
-        case .missingArchive(let tag): return "Release \(tag) has no Still-*.zip download."
+        case .missingArchive(let tag): return "Release \(tag) has no Hummery-*.zip download."
         }
     }
 }
@@ -92,7 +92,7 @@ public enum AppUpdateCheck {
         guard !release.draft, !release.prerelease else { return nil }
         guard let version = AppVersion(release.tagName) else { throw AppUpdateError.invalidVersion(release.tagName) }
         guard current < version else { return nil }
-        guard let archive = release.assets.first(where: { $0.name.hasPrefix("Still-") && $0.name.hasSuffix(".zip") }) else {
+        guard let archive = release.assets.first(where: { $0.name.hasPrefix("Hummery-") && $0.name.hasSuffix(".zip") }) else {
             throw AppUpdateError.missingArchive(release.tagName)
         }
         return AppRelease(version: version, notes: updateNotes(release.body ?? ""),

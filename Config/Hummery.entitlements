@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-    <!-- Still is distributed outside the App Store and replaces itself during updates, which the
+    <!-- Hummery is distributed outside the App Store and replaces itself during updates, which the
          App Sandbox doesn't allow. The hardened runtime still applies; Music automation needs
          this entitlement plus the user's Automation approval. -->
     <key>com.apple.security.automation.apple-events</key><true/>

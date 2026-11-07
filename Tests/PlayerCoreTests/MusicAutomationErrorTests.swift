@@ -7,7 +7,7 @@ final class MusicAutomationErrorTests: XCTestCase {
         XCTAssertTrue(text.contains("sandbox privilege"))
         XCTAssertTrue(text.contains("-10004"))
         XCTAssertTrue(text.contains("A privilege violation occurred."))
-        XCTAssertFalse(text.contains("Allow Still to control Music in System Settings"))
+        XCTAssertFalse(text.contains("Allow Hummery to control Music in System Settings"))
     }
     func testAutomationDenialExplainsWhereToGrantPermission() {
         let text = MusicAutomationError(number: -1743, message: "Not authorized").localizedDescription

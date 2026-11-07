@@ -12,7 +12,7 @@ struct MusicAppSnapshot: Sendable {
     var volume: Double
 }
 
-/// Keeps Music running without putting its window in front of Still.
+/// Keeps Music running without putting its window in front of Hummery.
 enum MusicAppProcess {
     static let bundleIdentifier = "com.apple.Music"
 
@@ -42,7 +42,7 @@ actor MusicAppBridge {
         let result = try execute(MusicAppScripts.playlists)
         return (0..<result.numberOfItems).compactMap { index in
             guard let row = result.atIndex(index + 1), let id = row.atIndex(1)?.stringValue,
-                  let name = row.atIndex(2)?.stringValue, name != MusicAppScripts.queuePlaylistName else { return nil }
+                  let name = row.atIndex(2)?.stringValue, !MusicAppScripts.isQueuePlaylist(name) else { return nil }
             let editable = row.atIndex(3)?.booleanValue ?? false
             return MusicPlaylist(id: id, name: name, subtitle: editable ? "From your library" : "From your library · read-only playlist", artwork: URL(string: "music-artwork://playlist/\(id)"), canAddTracks: editable)
         }

@@ -2,7 +2,7 @@ import XCTest
 import SwiftUI
 import AppKit
 import PlayerCore
-@testable import StillPlayer
+@testable import Hummery
 
 @MainActor
 final class ShortcutTests: XCTestCase {

@@ -1,7 +1,7 @@
 import XCTest
 import SwiftUI
 import PlayerCore
-@testable import StillPlayer
+@testable import Hummery
 
 final class PlayerPolishTests: XCTestCase {
     func testNowPlayingArtworkKeepsMusicPlaylistContext() throws {

@@ -70,12 +70,18 @@ final class MusicAppScriptTests: XCTestCase {
     func testQueueCopiesAPlaylistTailInOneEventAndPlaysTheQueue() throws {
         let script = try MusicAppScripts.playQueue([song, next])
         XCTAssertTrue(script.contains("duplicate (tracks 2 thru -1 of p) to q"))
-        // Guards against the playlist changing in Music after Still loaded it.
+        // Guards against the playlist changing in Music after Hummery loaded it.
         XCTAssertTrue(script.contains("(count of tracks of p) is 3 and persistent ID of track 2 of p is \"0123456789ABCDEF\""))
         XCTAssertTrue(script.contains("delete every track of q"))
         XCTAssertTrue(script.contains("play q"))
         XCTAssertTrue(script.contains(MusicAppScripts.literal(MusicAppScripts.queuePlaylistName)))
         XCTAssertTrue(script.contains("set shuffle enabled to false"))
+    }
+
+    func testQueuePlaylistsFromBeforeTheRenameAreRecognized() {
+        XCTAssertTrue(MusicAppScripts.isQueuePlaylist("Hummery · Up Next"))
+        XCTAssertTrue(MusicAppScripts.isQueuePlaylist("Still · Up Next"))
+        XCTAssertFalse(MusicAppScripts.isQueuePlaylist("Still"))
     }
 
     func testQueueCopiesSortedOrMixedListsOneSongAtATime() throws {

@@ -78,7 +78,7 @@ struct FloatingPlayer: View {
 
     private var pill: some View {
         HStack(spacing: 14) {
-            Artwork(url: player.current?.artwork, seed: player.current?.album ?? "Still", size: 44, cornerRadius: 22)
+            Artwork(url: player.current?.artwork, seed: player.current?.album ?? "Hummery", size: 44, cornerRadius: 22)
                 .matchedGeometryEffect(id: "art", in: space)
             VStack(alignment: .leading, spacing: 3) {
                 Text(player.current?.title ?? "Nothing playing").font(.system(size: 13, weight: .semibold)).lineLimit(1)
@@ -117,7 +117,7 @@ struct FloatingPlayer: View {
 
     private func selectionContent(_ tracks: [LibraryTrack], compact: Bool) -> some View {
         HStack(spacing: 4) {
-            Artwork(url: player.current?.artwork, seed: player.current?.album ?? "Still", size: 34, cornerRadius: 17)
+            Artwork(url: player.current?.artwork, seed: player.current?.album ?? "Hummery", size: 34, cornerRadius: 17)
                 .matchedGeometryEffect(id: "art", in: space)
                 .overlay {
                     if player.current != nil {
@@ -196,7 +196,7 @@ struct FloatingPlayer: View {
                     .help(shortcuts.display(.expandPlayer).map { "Collapse (Esc or \($0))" } ?? "Collapse (Esc)").accessibilityLabel("Collapse player")
             }
             .padding(.bottom, 14)
-            Artwork(url: player.current?.artwork, seed: player.current?.album ?? "Still", size: 170, cornerRadius: 12)
+            Artwork(url: player.current?.artwork, seed: player.current?.album ?? "Hummery", size: 170, cornerRadius: 12)
                 .matchedGeometryEffect(id: "art", in: space)
                 .shadow(color: .black.opacity(0.22), radius: 16, y: 8)
                 .padding(.bottom, 18)

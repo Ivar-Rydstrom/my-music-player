@@ -7,7 +7,7 @@ public struct MusicAutomationError: LocalizedError, Sendable {
     public var errorDescription: String? {
         switch number {
         case -1743:
-            return "macOS denied Automation access (-1743). Allow Still to control Music in System Settings > Privacy & Security > Automation, then reconnect."
+            return "macOS denied Automation access (-1743). Allow Hummery to control Music in System Settings > Privacy & Security > Automation, then reconnect."
         case -10004:
             return "Music rejected this request with a sandbox privilege error (-10004). This is an app configuration problem, even if Automation access is allowed. Original error: \(message)"
         case -1712:
