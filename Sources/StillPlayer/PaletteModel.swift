@@ -104,6 +104,12 @@ struct PaletteContext {
     var selectedID: String?
     /// Songs selected in the list, so "Add selected songs to playlist" can act on them.
     var selectedTracks: [LibraryTrack] = []
+    /// Each command's current key, shown beside it. Removed keys are simply absent.
+    var keys: [ShortcutAction: String] = PaletteContext.standardKeys
+
+    static let standardKeys = Dictionary(uniqueKeysWithValues: ShortcutAction.allCases.compactMap { action in
+        action.standard.map { (action, $0.display) }
+    })
 }
 
 // MARK: - Fuzzy matching
@@ -199,26 +205,26 @@ enum PaletteCatalog {
         // Playback
         if hasCurrent {
             add("toggle", context.isPlaying ? "Pause" : "Play", context.isPlaying ? "pause.fill" : "play.fill", .togglePlayback,
-                shortcut: "Space", keywords: ["play pause", "resume", "stop"])
-            add("next", "Next song", "forward.fill", .next, shortcut: "⌘→", keywords: ["skip"])
-            add("previous", "Previous song", "backward.fill", .previous, shortcut: "⌘←", keywords: ["back"])
+                shortcut: context.keys[.playPauseQuick] ?? context.keys[.playPause], keywords: ["play pause", "resume", "stop"])
+            add("next", "Next song", "forward.fill", .next, shortcut: context.keys[.nextSong], keywords: ["skip"])
+            add("previous", "Previous song", "backward.fill", .previous, shortcut: context.keys[.previousSong], keywords: ["back"])
             add("seek", "Seek to start", "backward.end.fill", .seekToStart, keywords: ["restart", "beginning"])
         }
         add("shuffle", context.shuffle ? "Shuffle off" : "Shuffle on", "shuffle", .setShuffle(!context.shuffle), keywords: ["shuffle"])
         add("repeat", context.repeatAll ? "Repeat off" : "Repeat on", "repeat", .setRepeat(!context.repeatAll), keywords: ["repeat", "loop"])
         if context.isMusicApp {
-            add("volup", "Volume up", "speaker.wave.3.fill", .volume(up: true), shortcut: "⌘↑", keywords: ["louder"])
-            add("voldown", "Volume down", "speaker.wave.1.fill", .volume(up: false), shortcut: "⌘↓", keywords: ["quieter"])
+            add("volup", "Volume up", "speaker.wave.3.fill", .volume(up: true), shortcut: context.keys[.volumeUp], keywords: ["louder"])
+            add("voldown", "Volume down", "speaker.wave.1.fill", .volume(up: false), shortcut: context.keys[.volumeDown], keywords: ["quieter"])
         }
         // Current song
         if let current = context.current {
             let favorite = context.favorites.contains(current.id)
             add("favcurrent", favorite ? "Unfavorite current song" : "Favorite current song", favorite ? "star.slash" : "star",
-                .favoriteCurrent, shortcut: "⌘L", keywords: ["love", "like", "star", current.title])
+                .favoriteCurrent, shortcut: context.keys[.favoriteCurrent], keywords: ["love", "like", "star", current.title])
             items.append(PaletteItem(id: "cmd.addcurrent", kind: .command, title: "Add current song to playlist", subtitle: current.title,
                                      keywords: ["playlist", current.title], icon: .symbol("text.badge.plus"), hint: "Choose",
                                      action: .push(.addToPlaylist([current], subject: current.title))))
-            add("revealcurrent", "Reveal current song in playlist", "scope", .revealCurrent, shortcut: "⌘J", keywords: ["show", "find", "locate", "go to"])
+            add("revealcurrent", "Reveal current song in playlist", "scope", .revealCurrent, shortcut: context.keys[.revealCurrent], keywords: ["show", "find", "locate", "go to"])
         }
         // Selected songs (in the list)
         if !context.selectedTracks.isEmpty {
@@ -234,17 +240,17 @@ enum PaletteCatalog {
             add("sleep\(minutes)", "Sleep timer: \(minutes) minutes", "moon", .sleep(minutes: minutes), keywords: ["sleep", "timer", "pause after"])
         }
         if context.sleepActive { add("sleepcancel", "Cancel sleep timer", "moon.zzz", .sleep(minutes: nil), keywords: ["sleep", "timer"]) }
-        add("sidebar", context.sidebarCollapsed ? "Show sidebar" : "Hide sidebar", "sidebar.left", .toggleSidebar, shortcut: "⌘S",
+        add("sidebar", context.sidebarCollapsed ? "Show sidebar" : "Hide sidebar", "sidebar.left", .toggleSidebar, shortcut: context.keys[.toggleSidebar],
             keywords: ["toggle sidebar", "collapse"])
         add("player", context.queueSupported ? "Show player and queue" : "Expand player", "rectangle.expand.vertical", .expandPlayer,
-            shortcut: "⇧⌘U", keywords: context.queueSupported ? ["queue", "up next", "now playing"] : ["now playing", "volume"])
-        add("filter", "Filter this playlist", "line.3.horizontal.decrease", .filterPlaylist, shortcut: "⌘F", keywords: ["find", "search in"])
-        add("refresh", "Refresh library", "arrow.clockwise", .refresh, shortcut: "⌘R", keywords: ["reload", "sync"])
+            shortcut: context.keys[.expandPlayer], keywords: context.queueSupported ? ["queue", "up next", "now playing"] : ["now playing", "volume"])
+        add("filter", "Filter this playlist", "line.3.horizontal.decrease", .filterPlaylist, shortcut: context.keys[.filter], keywords: ["find", "search in"])
+        add("refresh", "Refresh library", "arrow.clockwise", .refresh, shortcut: context.keys[.refresh], keywords: ["reload", "sync"])
         if context.hasRecentlyPlayed { add("clearrecent", "Clear recently played", "clock.badge.xmark", .clearRecent, keywords: ["history"]) }
         add("updates", "Check for updates", "arrow.down.circle", .checkForUpdates, keywords: ["update", "version"])
-        add("shortcuts", "Keyboard shortcuts", "keyboard", .showShortcuts, shortcut: "⌘/", keywords: ["keys", "help", "hotkeys"])
+        add("shortcuts", "Keyboard shortcuts", "keyboard", .showShortcuts, shortcut: context.keys[.shortcutsHelp], keywords: ["keys", "help", "hotkeys"])
         // Settings
-        add("settings", "Settings", "gearshape", .settings(tab: nil), shortcut: "⌘,", keywords: ["preferences", "options"], hint: "Open")
+        add("settings", "Settings", "gearshape", .settings(tab: nil), shortcut: context.keys[.settings], keywords: ["preferences", "options"], hint: "Open")
         add("settings.appearance", "Settings: Appearance", "paintpalette", .settings(tab: "appearance"), keywords: ["settings", "theme", "colors"], hint: "Open")
         add("settings.connection", "Settings: Connection", "link", .settings(tab: "connection"), keywords: ["settings", "music app", "apple music", "account"], hint: "Open")
         add("settings.updates", "Settings: Updates", "arrow.down.circle", .settings(tab: "updates"), keywords: ["settings"], hint: "Open")

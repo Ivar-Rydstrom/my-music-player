@@ -11,6 +11,7 @@ struct FloatingPlayer: View {
     @ObservedObject var model: AppModel
     @ObservedObject var player: PlaybackController
     @ObservedObject var workspace: Workspace
+    @ObservedObject private var shortcuts = ShortcutStore.shared
     @Namespace private var space
     @State private var seekDraft = 0.0
     @State private var seeking = false
@@ -95,7 +96,7 @@ struct FloatingPlayer: View {
             seekBar.frame(minWidth: 150, maxWidth: 230)
             Button(action: toggle) { Image(systemName: "chevron.up").font(.system(size: 12, weight: .semibold)) }
                 .foregroundStyle(theme.muted)
-                .help(showsQueue ? "Show player and queue (⇧⌘U)" : "Show player (⇧⌘U)")
+                .help(shortcuts.hint(showsQueue ? "Show player and queue" : "Show player", .expandPlayer))
                 .accessibilityLabel("Expand player")
         }
         .buttonStyle(.plain)
@@ -192,7 +193,7 @@ struct FloatingPlayer: View {
                 Spacer()
                 Button(action: toggle) { Image(systemName: "chevron.down").font(.system(size: 12, weight: .semibold)) }
                     .buttonStyle(.plain).foregroundStyle(theme.muted)
-                    .help("Collapse (Esc or ⇧⌘U)").accessibilityLabel("Collapse player")
+                    .help(shortcuts.display(.expandPlayer).map { "Collapse (Esc or \($0))" } ?? "Collapse (Esc)").accessibilityLabel("Collapse player")
             }
             .padding(.bottom, 14)
             Artwork(url: player.current?.artwork, seed: player.current?.album ?? "Still", size: 170, cornerRadius: 12)

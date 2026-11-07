@@ -75,6 +75,7 @@ struct ContentView: View {
         .animation(.easeOut(duration: 0.12), value: workspace.showShortcuts)
         .task {
             workspace.model = model
+            workspace.openSettingsAction = { openSettings() }
             wirePalette()
             workspace.installKeyMonitor()
             if ProcessInfo.processInfo.arguments.contains("--sample-library") { model.useSamples() }
@@ -156,7 +157,8 @@ struct ContentView: View {
                                   sidebarCollapsed: workspace.sidebarCollapsed, hasRecentlyPlayed: !model.recentTracks.isEmpty,
                                   playlists: Workspace.alphabetical(model.playlists),
                                   themes: ThemePreset.all.map { ($0.id, $0.name) }, currentTheme: themes?.preferences.preset ?? "",
-                                  selectedID: model.selectedID, selectedTracks: workspace.selectedTracks())
+                                  selectedID: model.selectedID, selectedTracks: workspace.selectedTracks(),
+                                  keys: ShortcutAction.allCases.reduce(into: [:]) { keys, action in keys[action] = workspace.shortcuts.display(action) })
         }
         palette.songProvider = { [weak model] in
             guard let model else { return [] }
@@ -298,6 +300,7 @@ struct ContentView: View {
 
 /// The inset rounded card holding the list. The playlist's cover washes the header only.
 struct ContentCard: View {
+    @ObservedObject private var shortcuts = ShortcutStore.shared
     @Environment(\.playerTheme) private var theme
     @ObservedObject var model: AppModel
     @ObservedObject var player: PlaybackController
@@ -359,13 +362,14 @@ struct ContentCard: View {
             ContentUnavailableView {
                 Label("Nothing in \(listTitle) matches", systemImage: "line.3.horizontal.decrease")
             } description: {
-                Text("Search your whole library with ⇧⌘F.")
+                Text(shortcuts.display(.searchLibrary).map { "Search your whole library with \($0)." } ?? "Search your whole library instead.")
             } actions: {
                 Button("Search all music for “\(workspace.filterText)”") { workspace.searchLibrary(workspace.filterText) }
             }
         } else {
             ContentUnavailableView(model.selectedID == "recent" ? "Nothing played yet" : "No songs here yet", systemImage: "music.note",
-                description: Text("Pick a playlist on the left, or press ⇧⌘F to search your library."))
+                description: Text(shortcuts.display(.searchLibrary).map { "Pick a playlist on the left, or press \($0) to search your library." }
+                                  ?? "Pick a playlist on the left, or use Edit › Search Library."))
         }
     }
 }
@@ -397,6 +401,7 @@ struct HeaderWash: View {
 }
 
 struct PlaylistHeader: View {
+    @ObservedObject private var shortcuts = ShortcutStore.shared
     @Environment(\.playerTheme) private var theme
     @ObservedObject var model: AppModel
     @ObservedObject var workspace: Workspace
@@ -417,15 +422,15 @@ struct PlaylistHeader: View {
             Spacer(minLength: 12)
             if workspace.filterVisible { filterField.transition(.move(edge: .trailing).combined(with: .opacity)) }
             else {
-                HeaderIconButton(symbol: "line.3.horizontal.decrease", help: "Filter this playlist (⌘F)") { workspace.revealFilter() }
+                HeaderIconButton(symbol: "line.3.horizontal.decrease", help: shortcuts.hint("Filter this playlist", .filter)) { workspace.revealFilter() }
             }
             if id == "recent", !model.recentTracks.isEmpty {
                 Button("Clear") { model.recentTracks = [] }.buttonStyle(SoftCapsuleStyle(prominent: false)).help("Clear recently played")
             }
             Button { workspace.playPlaylist(shuffled: true) } label: { Label("Shuffle", systemImage: "shuffle") }
-                .buttonStyle(SoftCapsuleStyle(prominent: false)).help("Shuffle (⇧⌘↩)").disabled(model.tracks.isEmpty)
+                .buttonStyle(SoftCapsuleStyle(prominent: false)).help(shortcuts.hint("Shuffle", .shufflePlaylist)).disabled(model.tracks.isEmpty)
             Button { workspace.playPlaylist(shuffled: false) } label: { Label("Play", systemImage: "play.fill") }
-                .buttonStyle(SoftCapsuleStyle(prominent: true)).help("Play (⌘↩)").disabled(model.tracks.isEmpty)
+                .buttonStyle(SoftCapsuleStyle(prominent: true)).help(shortcuts.hint("Play", .playPlaylist)).disabled(model.tracks.isEmpty)
         }
         .padding(.leading, 22).padding(.trailing, 20).padding(.top, 22).padding(.bottom, 14)
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: workspace.filterVisible)

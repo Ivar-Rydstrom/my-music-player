@@ -9,6 +9,7 @@ import PlayerCore
 struct Sidebar: View {
     @Environment(\.playerTheme) private var theme
     @Environment(\.openSettings) private var openSettings
+    @ObservedObject private var shortcuts = ShortcutStore.shared
     @ObservedObject var model: AppModel
     @ObservedObject var player: PlaybackController
     @ObservedObject var workspace: Workspace
@@ -50,12 +51,12 @@ struct Sidebar: View {
     private var topRow: some View {
         HStack(spacing: 2) {
             TrafficLights(window: workspace.window).padding(.leading, 8).padding(.trailing, 12)
-            ChromeButton(symbol: "sidebar.left", help: floating ? "Keep sidebar open (⌘S)" : "Hide sidebar (⌘S)", size: 13.5) {
+            ChromeButton(symbol: "sidebar.left", help: shortcuts.hint(floating ? "Keep sidebar open" : "Hide sidebar", .toggleSidebar), size: 13.5) {
                 withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) { workspace.toggleSidebar() }
             }
             Spacer(minLength: 0)
-            ChromeButton(symbol: "arrow.left", help: "Back (⌘[)", size: 13) { workspace.goBack() }.disabled(!workspace.canGoBack)
-            ChromeButton(symbol: "arrow.right", help: "Forward (⌘])", size: 13) { workspace.goForward() }.disabled(!workspace.canGoForward)
+            ChromeButton(symbol: "arrow.left", help: shortcuts.hint("Back", .back), size: 13) { workspace.goBack() }.disabled(!workspace.canGoBack)
+            ChromeButton(symbol: "arrow.right", help: shortcuts.hint("Forward", .forward), size: 13) { workspace.goForward() }.disabled(!workspace.canGoForward)
         }
         .padding(.horizontal, 6)
         .frame(height: 44)
@@ -77,7 +78,7 @@ struct Sidebar: View {
                     .font(.system(size: 11, weight: .medium))
             }
             .buttonStyle(.plain).foregroundStyle(theme.frameMuted)
-            .opacity(playlistsHovered ? 1 : 0).help("Refresh library (⌘R)").accessibilityLabel("Refresh library")
+            .opacity(playlistsHovered ? 1 : 0).help(shortcuts.hint("Refresh library", .refresh)).accessibilityLabel("Refresh library")
         }
         .padding(.horizontal, 10).frame(height: 24).padding(.bottom, 4)
         .contentShape(Rectangle())
@@ -110,9 +111,9 @@ struct Sidebar: View {
             .padding(.leading, 8)
             .help(model.isLive ? model.connectionStatus : "Sample library: simulated playback, no audio")
             Spacer(minLength: 4)
-            ChromeButton(symbol: "arrow.clockwise", help: "Refresh library (⌘R)", size: 12.5) { model.perform { await model.refresh() } }
-            ChromeButton(symbol: "keyboard", help: "Keyboard shortcuts (⌘/)", size: 12.5) { workspace.showShortcuts = true }
-            ChromeButton(symbol: "gearshape", help: "Settings (⌘,)", size: 13) { openSettings() }
+            ChromeButton(symbol: "arrow.clockwise", help: shortcuts.hint("Refresh library", .refresh), size: 12.5) { model.perform { await model.refresh() } }
+            ChromeButton(symbol: "keyboard", help: shortcuts.hint("Keyboard shortcuts", .shortcutsHelp), size: 12.5) { workspace.showShortcuts = true }
+            ChromeButton(symbol: "gearshape", help: shortcuts.hint("Settings", .settings), size: 13) { openSettings() }
         }
         .padding(.horizontal, 8).frame(height: 40).padding(.bottom, 4)
     }
@@ -129,9 +130,9 @@ struct AddressBar: View {
     @Environment(\.playerTheme) private var theme
     @ObservedObject var workspace: Workspace
     @State private var hovering = false
-    @AppStorage(PaletteShortcut.storageKey) private var paletteShortcut = PaletteShortcut.standard.storage
+    @ObservedObject private var shortcuts = ShortcutStore.shared
     var body: some View {
-        let key = PaletteShortcut.stored(paletteShortcut)?.display
+        let key = shortcuts.display(.palette)
         Button { workspace.openPalette() } label: {
             HStack(spacing: 8) {
                 Text(workspace.contextTitle).font(.system(size: 13, weight: .medium)).lineLimit(1)

@@ -6,7 +6,7 @@ struct StillPlayerApp: App {
     @StateObject private var themes = ThemeStore()
     @StateObject private var updater = AppUpdater()
     @StateObject private var workspace = Workspace()
-    @AppStorage(PaletteShortcut.storageKey) private var paletteShortcut = PaletteShortcut.standard.storage
+    @StateObject private var shortcuts = ShortcutStore.shared
     var body: some Scene {
         WindowGroup {
             ContentView(model: model, workspace: workspace, themes: themes, updater: updater)
@@ -24,68 +24,63 @@ struct StillPlayerApp: App {
         .defaultSize(width: 1280, height: 820)
         .windowStyle(.hiddenTitleBar)
         .commands {
+            // Every key below is the user's (Settings › Keyboard). The window's key monitor runs the
+            // command; the menu shows the key, or none when it was removed.
             CommandGroup(replacing: .newItem) {}
             CommandGroup(replacing: .saveItem) {}
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") { Task { await updater.check(userInitiated: true) } }.disabled(updater.isBusy)
             }
+            CommandGroup(replacing: .appSettings) { item("Settings…", .settings) }
             CommandGroup(replacing: .textEditing) {
-                // The key itself is handled by the window's key monitor; this shows it on the menu.
-                Button("Command Palette…") { workspace.togglePalette() }.paletteShortcut(PaletteShortcut.stored(paletteShortcut))
-                Button("Actions for Selected Song…") { workspace.showActionsForSelection() }.keyboardShortcut("k", modifiers: [.command])
-                Button("Filter This Playlist") { workspace.revealFilter() }.keyboardShortcut("f", modifiers: [.command])
-                Button("Search Library…") { workspace.searchLibrary() }.keyboardShortcut("f", modifiers: [.command, .shift])
+                item("Command Palette…", .palette)
+                item("Actions for Selected Song…", .songActions)
+                item("Filter This Playlist", .filter)
+                item("Search Library…", .searchLibrary)
             }
             CommandMenu("Go") {
-                Button("Back") { workspace.goBack() }.keyboardShortcut("[", modifiers: [.command]).disabled(!workspace.canGoBack)
-                Button("Forward") { workspace.goForward() }.keyboardShortcut("]", modifiers: [.command]).disabled(!workspace.canGoForward)
-                Button("Reveal Current Song") {
-                    if let current = model.playback.current { workspace.reveal(current) }
-                }.keyboardShortcut("j", modifiers: [.command]).disabled(model.playback.current == nil)
+                item("Back", .back).disabled(!workspace.canGoBack)
+                item("Forward", .forward).disabled(!workspace.canGoForward)
+                item("Reveal Current Song", .revealCurrent).disabled(model.playback.current == nil)
                 Divider()
                 Button("Recently Played") { workspace.select("recent") }
                 Button("Favorites") { workspace.select("favorites") }
                 Divider()
-                Button("Previous Playlist") { workspace.selectAdjacent(-1) }.keyboardShortcut(.upArrow, modifiers: [.command, .option])
-                Button("Next Playlist") { workspace.selectAdjacent(1) }.keyboardShortcut(.downArrow, modifiers: [.command, .option])
+                item("Previous Playlist", .previousList)
+                item("Next Playlist", .nextList)
             }
             CommandMenu("Playback") {
-                Button("Play / Pause") { model.perform { try await model.playback.toggle() } }.keyboardShortcut("p", modifiers: [.command])
-                Button("Next Song") { model.perform { try await model.playback.next() } }.keyboardShortcut(.rightArrow, modifiers: [.command])
-                Button("Previous Song") { model.perform { try await model.playback.previous() } }.keyboardShortcut(.leftArrow, modifiers: [.command])
+                item("Play / Pause", .playPause)
+                item("Next Song", .nextSong)
+                item("Previous Song", .previousSong)
                 Divider()
-                Button("Play Playlist") { workspace.playPlaylist(shuffled: false) }.keyboardShortcut(.return, modifiers: [.command])
-                Button("Shuffle Playlist") { workspace.playPlaylist(shuffled: true) }.keyboardShortcut(.return, modifiers: [.command, .shift])
-                Button("Favorite Current Song") {
-                    if let current = model.playback.current { model.perform { try await model.favorite(current) } }
-                }.keyboardShortcut("l", modifiers: [.command]).disabled(model.playback.current == nil)
+                item("Play Playlist", .playPlaylist)
+                item("Shuffle Playlist", .shufflePlaylist)
+                item("Favorite Current Song", .favoriteCurrent).disabled(model.playback.current == nil)
                 if let current = model.playback.current {
                     AddToPlaylistMenu(model: model, tracks: [current], title: "Add Current Song to Playlist")
                 } else {
                     Button("Add Current Song to Playlist") {}.disabled(true)
                 }
                 Divider()
-                Button("Volume Up") { model.playback.setVolume(min(100, model.playback.volume + 10)) }
-                    .keyboardShortcut(.upArrow, modifiers: [.command]).disabled(!model.playback.isMusicApp)
-                Button("Volume Down") { model.playback.setVolume(max(0, model.playback.volume - 10)) }
-                    .keyboardShortcut(.downArrow, modifiers: [.command]).disabled(!model.playback.isMusicApp)
+                item("Volume Up", .volumeUp).disabled(!model.playback.isMusicApp)
+                item("Volume Down", .volumeDown).disabled(!model.playback.isMusicApp)
                 Divider()
-                Button("Refresh Library") { model.perform { await model.refresh() } }.keyboardShortcut("r", modifiers: [.command])
+                item("Refresh Library", .refresh)
             }
             CommandGroup(after: .sidebar) {
-                Button(workspace.sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar") {
-                    withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) { workspace.toggleSidebar() }
-                }.keyboardShortcut("s", modifiers: [.command])
-                Button(workspace.pillExpanded ? "Collapse Player" : (workspace.queueSupported ? "Expand Player and Queue" : "Expand Player")) {
-                    withAnimation(FloatingPlayer.morph) { workspace.pillExpanded.toggle() }
-                }.keyboardShortcut("u", modifiers: [.command, .shift])
+                item(workspace.sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar", .toggleSidebar)
+                item(workspace.pillExpanded ? "Collapse Player" : (workspace.queueSupported ? "Expand Player and Queue" : "Expand Player"), .expandPlayer)
             }
-            CommandGroup(replacing: .help) {
-                Button("Keyboard Shortcuts") { workspace.showShortcuts.toggle() }.keyboardShortcut("/", modifiers: [.command])
-            }
+            CommandGroup(replacing: .help) { item("Keyboard Shortcuts", .shortcutsHelp) }
         }
         Settings {
             SettingsView(model: model, store: themes, updater: updater).modifier(Themed(store: themes))
         }
+    }
+
+    /// A menu item for a command, showing its current key.
+    private func item(_ title: String, _ action: ShortcutAction) -> some View {
+        Button(title) { workspace.run(action) }.shortcut(shortcuts.binding(action))
     }
 }

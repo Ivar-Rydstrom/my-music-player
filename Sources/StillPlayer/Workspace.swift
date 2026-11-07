@@ -47,6 +47,8 @@ final class Workspace: ObservableObject {
     // Overlays
     /// The command palette (Raycast-style: one ranked list, an action panel per result).
     let palette = PaletteController()
+    /// The user's key bindings for every command.
+    let shortcuts = ShortcutStore.shared
     @Published var pillExpanded = false
     /// The list the user last started playing from, so the sidebar can mark it.
     @Published var playingListID: String?
@@ -323,7 +325,7 @@ final class Workspace: ObservableObject {
 
     func closePalette() { palette.close() }
 
-    /// The palette shortcut (⇧⌘P unless changed in Settings) opens the palette, or closes it again.
+    /// The palette's key (⇧⌘P unless changed or removed in Settings) opens the palette, or closes it again.
     func togglePalette() { if palette.isOpen { closePalette() } else { openPalette() } }
 
     // MARK: Keyboard
@@ -342,41 +344,39 @@ final class Workspace: ObservableObject {
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
         let editing = window.firstResponder is NSTextView
         let key = event.keyCode
+        // Every app command goes through the user's bindings, so a removed binding does nothing at all.
+        let command = shortcuts.action(for: event, typing: editing)
 
-        // The configurable palette shortcut wins over everything, so it can also close the palette.
-        if let shortcut = PaletteShortcut.current, shortcut.matches(event) { togglePalette(); return true }
-        if palette.isOpen { return palette.handle(key: key, flags: flags, characters: event.charactersIgnoringModifiers) }
+        // The palette key wins over everything, so it also closes the palette.
+        if command == .palette { togglePalette(); return true }
+        if palette.isOpen {
+            if palette.handle(key: key, flags: flags, characters: event.charactersIgnoringModifiers) { return true }
+            if let command { run(command); return true }
+            return false
+        }
+        if let command { run(command); return true }
 
         if showShortcuts {
             if key == 53 { showShortcuts = false; return true }
             return false
         }
 
-        if editing && filterFocused {
+        // Fixed keys: moving around lists and backing out. These aren't commands, so they aren't rebindable.
+        if editing && (filterFocused || searchFocused) {
             switch key {
             case 125 where flags.isEmpty || flags == .shift: moveSelection(1, extend: flags == .shift); return true
             case 126 where flags.isEmpty || flags == .shift: moveSelection(-1, extend: flags == .shift); return true
             case 36 where flags.isEmpty, 76 where flags.isEmpty:
                 if selection.isEmpty { moveSelection(1) }
                 playSelection(); return true
-            case 53: escapeFilter(); return true
-            default: return false
-            }
-        }
-        if editing && searchFocused {
-            switch key {
-            case 125 where flags.isEmpty || flags == .shift: moveSelection(1, extend: flags == .shift); return true
-            case 126 where flags.isEmpty || flags == .shift: moveSelection(-1, extend: flags == .shift); return true
-            case 36 where flags.isEmpty, 76 where flags.isEmpty:
-                if selection.isEmpty { moveSelection(1) }
-                playSelection(); return true
-            case 53: escapeSearch(); return true
+            case 53:
+                if searchFocused { escapeSearch() } else { escapeFilter() }
+                return true
             default: return false
             }
         }
         if editing { return false }
 
-        // Nothing is being typed into.
         switch key {
         case 53 where flags.isEmpty:
             if pillExpanded { pillExpanded = false; return true }
@@ -389,19 +389,46 @@ final class Workspace: ObservableObject {
             playSelection(); return true
         case 125 where flags.isEmpty || flags == .shift, 126 where flags.isEmpty || flags == .shift:
             moveSelection(key == 125 ? 1 : -1, extend: flags == .shift); return true
-        case 0 where flags == .command:
-            selectAll(); return true
-        case 40 where flags == .command:
-            showActionsForSelection(); return true
-        default: break
+        default:
+            // Plain letters do nothing unless a text field is focused: no type-to-search, no surprises.
+            return false
         }
-        // Space plays/pauses only when it isn't being typed.
-        if key == 49 && flags.isEmpty {
-            if let model, model.playback.current != nil { model.perform { try await model.playback.toggle() } }
-            return true
+    }
+
+    // MARK: Commands
+
+    /// Set by the window, which owns SwiftUI's `openSettings`.
+    var openSettingsAction: (() -> Void)?
+
+    /// Runs a command, whether it came from its key, its menu item, or a button.
+    func run(_ action: ShortcutAction) {
+        guard let model else { return }
+        let player = model.playback
+        switch action {
+        case .palette: togglePalette()
+        case .songActions: showActionsForSelection()
+        case .filter: revealFilter()
+        case .searchLibrary: searchLibrary()
+        case .back: goBack()
+        case .forward: goForward()
+        case .previousList: selectAdjacent(-1)
+        case .nextList: selectAdjacent(1)
+        case .revealCurrent: if let current = player.current { reveal(current) }
+        case .playPause, .playPauseQuick: if player.current != nil { model.perform { try await player.toggle() } }
+        case .nextSong: model.perform { try await player.next() }
+        case .previousSong: model.perform { try await player.previous() }
+        case .playPlaylist: playPlaylist(shuffled: false)
+        case .shufflePlaylist: playPlaylist(shuffled: true)
+        case .favoriteCurrent: if let current = player.current { model.perform { try await model.favorite(current) } }
+        case .volumeUp: if player.isMusicApp { player.setVolume(min(100, player.volume + 10)) }
+        case .volumeDown: if player.isMusicApp { player.setVolume(max(0, player.volume - 10)) }
+        case .selectAll: selectAll()
+        case .toggleSidebar: withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) { toggleSidebar() }
+        case .expandPlayer: withAnimation(FloatingPlayer.morph) { pillExpanded.toggle() }
+        case .refresh: model.perform { await model.refresh() }
+        case .settings: openSettingsAction?()
+        case .shortcutsHelp: showShortcuts.toggle()
         }
-        // Plain letters do nothing unless a text field is focused: no type-to-search, no surprises.
-        return false
     }
 }
 
