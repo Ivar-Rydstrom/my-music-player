@@ -8,7 +8,8 @@ struct SettingsView: View {
     @ObservedObject var store: ThemeStore
     @ObservedObject var updater: AppUpdater
     @Environment(\.playerTheme) private var theme
-    @State private var tab = ProcessInfo.processInfo.arguments.contains("--connect-music") ? "connection" : "appearance"
+    /// Remembered, so the palette's "Settings: Connection" (etc.) can open straight to a section.
+    @AppStorage("settings.tab") private var tab = ProcessInfo.processInfo.arguments.contains("--connect-music") ? "connection" : "appearance"
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -17,8 +18,9 @@ struct SettingsView: View {
                 Picker("Settings section", selection: $tab) {
                     Text("Appearance").tag("appearance")
                     Text("Connection").tag("connection")
+                    Text("Keyboard").tag("keyboard")
                     Text("Updates").tag("updates")
-                }.pickerStyle(.segmented).labelsHidden().frame(width: 360)
+                }.pickerStyle(.segmented).labelsHidden().frame(width: 440)
             }.padding(26)
             Divider()
             if tab == "appearance" {
@@ -64,6 +66,8 @@ struct SettingsView: View {
                         }
                     }.padding(28)
                 }
+            } else if tab == "keyboard" {
+                KeyboardSettingsView()
             } else if tab == "updates" {
                 UpdateSettingsView(updater: updater)
             } else {
