@@ -33,7 +33,7 @@ signing = obj("signing", 'isa = PBXFileReference; lastKnownFileType = text.xccon
 def configs(prefix, settings, base=None):
     ids = []
     for name in ("Debug", "Release"):
-        extra = 'SWIFT_OPTIMIZATION_LEVEL = "-Onone"; DEBUG_INFORMATION_FORMAT = dwarf;' if name == "Debug" else 'SWIFT_OPTIMIZATION_LEVEL = "-O";'
+        extra = 'SWIFT_OPTIMIZATION_LEVEL = "-Onone"; DEBUG_INFORMATION_FORMAT = dwarf; SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;' if name == "Debug" else 'SWIFT_OPTIMIZATION_LEVEL = "-O";'
         base_setting = f'baseConfigurationReference = {base};' if base else ''
         ids.append(obj(prefix + name, f'isa = XCBuildConfiguration; {base_setting} buildSettings = {{ {settings} {extra} }}; name = {name};'))
     return obj(prefix + "list", f'isa = XCConfigurationList; buildConfigurations = ({",".join(ids)},); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;')

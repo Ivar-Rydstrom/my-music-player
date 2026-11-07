@@ -7,35 +7,52 @@ import PlayerCore
 struct ContentView: View {
     @Environment(\.playerTheme) private var theme
     @ObservedObject var model: AppModel
-    @AppStorage("queue.visible") private var showQueue = true
-    @State private var showSearch = false
+    @ObservedObject var workspace: Workspace
     @Environment(\.openSettings) private var openSettings
-    @State private var sidebarFilter = ""
-    @State private var filters: [String: String] = [:]
-    @State private var selections: [String: Set<String>] = [:]
-
-    private var viewID: String { model.selectedID ?? "none" }
-    private var filter: Binding<String> { Binding(get: { filters[viewID] ?? "" }, set: { filters[viewID] = $0 }) }
-    private var selection: Binding<Set<String>> { Binding(get: { selections[viewID] ?? [] }, set: { selections[viewID] = $0 }) }
-    private var visible: [LibraryTrack] { model.tracks.filter { $0.matches(filter.wrappedValue) } }
+    @FocusState private var commandFocused: Bool
+    @State private var rowFrame: CGRect?
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                sidebar.frame(width: 225)
+                Sidebar(model: model, workspace: workspace).frame(width: 224)
                 Divider()
                 mainContent.frame(maxWidth: .infinity, maxHeight: .infinity)
-                if showQueue && !model.usesMusicApp {
+                if workspace.queueVisible {
                     Divider()
-                    QueuePanel(player: model.playback).frame(width: 270)
+                    QueueColumn(player: model.playback, workspace: workspace).frame(width: 248)
                 }
             }
+            .ignoresSafeArea(.container, edges: .top)
             Divider()
-            PlayerBar(model: model, player: model.playback, showQueue: $showQueue)
+            PlayerBar(model: model, player: model.playback, workspace: workspace)
         }
         .background(theme.background)
+        .background(WindowReader { window in
+            workspace.window = window
+            // AppKit focuses the first text field on launch, which would swallow Space. Start with
+            // nothing focused; type-to-find still routes letters into the command bar.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                if window.firstResponder is NSTextView { window.makeFirstResponder(nil) }
+            }
+            #if DEBUG
+            applyDebugWindowSize(window)
+            #endif
+        })
+        .overlay {
+            if workspace.showShortcuts {
+                ShortcutsOverlay(workspace: workspace, queueSupported: workspace.queueSupported, musicVolume: model.playback.isMusicApp)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.12), value: workspace.showShortcuts)
         .task {
+            workspace.model = model
+            workspace.installKeyMonitor()
             if ProcessInfo.processInfo.arguments.contains("--sample-library") { model.useSamples() }
+            #if DEBUG
+            applyDebugSelection()
+            #endif
             await model.select(model.selectedID)
             if ProcessInfo.processInfo.arguments.contains("--connect-music") {
                 await model.connect()
@@ -43,6 +60,9 @@ struct ContentView: View {
                 FileHandle.standardOutput.write(Data(report.utf8))
             } else if !ProcessInfo.processInfo.arguments.contains("--sample-library") { await model.restoreConnectionIfNeeded() }
             if ProcessInfo.processInfo.arguments.contains("--show-settings") || ProcessInfo.processInfo.arguments.contains("--connect-music") { openSettings() }
+            #if DEBUG
+            await applyDebugState()
+            #endif
         }
         .task(id: model.tracks.compactMap(\.artwork)) {
             await MusicArtworkLoader.shared.prefetchTracks(model.tracks.compactMap(\.artwork))
@@ -50,160 +70,349 @@ struct ContentView: View {
         .task(id: model.playlists.compactMap(\.artwork)) {
             await MusicArtworkLoader.shared.prefetchPlaylists(model.playlists.compactMap(\.artwork))
         }
-        .sheet(isPresented: $showSearch) { SearchView(model: model) }
-
+        .task(id: "\(model.isLive)-\(model.usesMusicApp)-\(workspace.scope.rawValue)-\(workspace.libraryQuery)") {
+            guard workspace.isSearching else { return }
+            workspace.selections["search"] = []
+            await model.search(workspace.libraryQuery, catalog: workspace.scope == .catalog && !model.usesMusicApp)
+        }
+        .onChange(of: model.usesMusicApp) { _, musicApp in
+            if musicApp && workspace.scope == .catalog { workspace.scope = .library }
+        }
+        .onChange(of: workspace.commandFocusRequest) { _, _ in
+            commandFocused = true
+            workspace.placeCaretAtEndIfNeeded()
+        }
+        .onChange(of: workspace.commandBlurRequest) { _, _ in commandFocused = false }
+        .onChange(of: commandFocused) { _, focused in workspace.commandFocused = focused }
         .alert("Couldn't complete that action", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
             Button("OK") { model.error = nil }
         } message: { Text(model.error ?? "") }
-        .overlay(alignment: .top) {
+        .overlay(alignment: .bottom) {
             if let notice = model.notice {
-                HStack {
-                    Text(notice).font(.callout)
-                    Button { model.notice = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain)
+                HStack(spacing: 10) {
+                    Text(notice).font(.system(size: 13))
+                    Button { model.notice = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain).foregroundStyle(theme.muted).accessibilityLabel("Dismiss")
                 }
-                .padding(12).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-                .padding(.top, 36)
+                .padding(.horizontal, 14).padding(.vertical, 9)
+                .background(.regularMaterial, in: Capsule())
+                .padding(.bottom, 64)
                 .task(id: notice) { try? await Task.sleep(for: .seconds(6)); if model.notice == notice { model.notice = nil } }
             }
         }
     }
 
-    private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 9) {
-                Image(systemName: "waveform").foregroundStyle(theme.accent)
-                Text("still").font(.system(size: 25, weight: .semibold, design: .rounded))
-            }.padding(.top, 44).padding(.bottom, 30).padding(.horizontal, 23)
-            Button { showSearch = true } label: {
-                HStack {
-                    Label("Search", systemImage: "magnifyingglass")
-                    Spacer()
-                    Text("⌘K").foregroundStyle(theme.muted)
-                }.padding(10).background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 7))
-            }.buttonStyle(.plain).keyboardShortcut("k").padding(.horizontal, 14)
-            Text("YOUR MUSIC").font(.system(size: 10, weight: .semibold)).tracking(1.6)
-                .foregroundStyle(theme.muted).padding(.horizontal, 24).padding(.top, 30).padding(.bottom, 12)
-            sidebarItem("Recently played", icon: "clock.arrow.circlepath", id: "recent")
-            sidebarItem(model.isLive && !model.usesMusicApp ? "Favorites this session" : "Favorite songs", icon: "star", id: "favorites")
-            HStack {
-                Text("PLAYLISTS").font(.system(size: 10, weight: .semibold)).tracking(1.6)
-                Spacer()
-                Button { model.perform { await model.refresh() } } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(.plain).help("Refresh library")
-            }.foregroundStyle(theme.muted).padding(.horizontal, 24).padding(.top, 30).padding(.bottom, 12)
-            TextField("Filter playlists", text: $sidebarFilter).textFieldStyle(.plain)
-                .font(.caption).padding(.horizontal, 24).padding(.bottom, 12)
-            ScrollView {
-                LazyVStack(spacing: 3) {
-                    ForEach(model.sortedPlaylists.filter { sidebarFilter.isEmpty || $0.name.localizedStandardContains(sidebarFilter) }) { playlist in
-                        sidebarItem(playlist.name, icon: model.pinned.contains(playlist.id) ? "pin.fill" : "music.note.list", id: playlist.id, artwork: playlist.artwork)
-                            .contextMenu {
-                                Button(model.pinned.contains(playlist.id) ? "Unpin playlist" : "Pin playlist") { model.pin(playlist) }
-                            }
-                    }
-                }
-            }
-            Spacer(minLength: 15)
-            Button { openSettings() } label: {
-                HStack(spacing: 8) {
-                    Circle().fill(model.isLive ? theme.accent : .orange).frame(width: 6, height: 6)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(model.isLive ? "Library connected" : "Sample library").font(.caption.weight(.medium))
-                        Text(model.isLive ? "Settings & appearance" : "Settings · Demo has no audio").font(.system(size: 10)).foregroundStyle(theme.muted)
-                    }
-                    Spacer()
-                    Image(systemName: "slider.horizontal.3").foregroundStyle(theme.muted)
-                }.padding(14)
-            }.buttonStyle(.plain)
-        }.background(theme.surface.opacity(0.6))
-    }
-
-    private func sidebarItem(_ title: String, icon: String, id: String, artwork: URL? = nil) -> some View {
-        Button { Task { await model.select(id) } } label: {
-            HStack(spacing: 11) {
-                if let artwork {
-                    Artwork(url: artwork, seed: title, size: 28)
-                } else {
-                    Image(systemName: icon).frame(width: 16).foregroundStyle(model.selectedID == id ? theme.accent : theme.muted)
-                }
-                Text(title).lineLimit(1).font(.system(size: 12))
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 11).padding(.vertical, 10)
-            .background(model.selectedID == id ? theme.accent.opacity(0.10) : .clear, in: RoundedRectangle(cornerRadius: 6))
-            .contentShape(Rectangle())
-        }.buttonStyle(.plain).padding(.horizontal, 12)
+    private var listTitle: String {
+        model.selectedID == "recent" ? "Recently played" : model.selectedID == "favorites" ? "Favorites" : model.playlist?.name ?? "Your music"
     }
 
     private var mainContent: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text(model.isLive ? "YOUR LIBRARY" : "SAMPLE LIBRARY")
-                    .font(.system(size: 10, weight: .medium)).tracking(1.7).foregroundStyle(theme.muted)
-                Spacer()
-                Button { openSettings() } label: { Image(systemName: "gearshape") }.buttonStyle(.plain).help("Settings").accessibilityLabel("Settings")
-            }.padding(.horizontal, 30).padding(.top, 43)
-            HStack(alignment: .bottom, spacing: 24) {
-                Artwork(url: model.playlist?.artwork, seed: model.selectedID == "recent" ? "Recently played" : model.playlist?.name ?? "Favorites", size: 124)
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(model.selectedID == "recent" ? "LISTENING HISTORY" : model.selectedID == "favorites" ? "FAVORITES" : "PLAYLIST")
-                        .font(.system(size: 9, weight: .semibold)).tracking(2).foregroundStyle(theme.accent)
-                    Text(model.selectedID == "recent" ? "Recently played" : model.selectedID == "favorites" ? "Your favorites" : model.playlist?.name ?? "Your music")
-                        .font(.system(size: 32, weight: .semibold, design: .rounded)).lineLimit(2)
-                    Text(model.selectedID == "recent" ? "The songs you come back to. From this session." : model.selectedID == "favorites" ? model.usesMusicApp ? "Your most-loved songs, all together." : model.isLive ? "Favorite requests accepted in this session. Account favorites are not imported yet." : "Always worth another listen." : model.playlist?.subtitle ?? "Choose a playlist to get started.")
-                        .font(.system(size: 12)).foregroundStyle(theme.muted)
-                    Text("\(model.tracks.count) songs · \(Int(model.tracks.reduce(0) { $0 + $1.duration } / 60)) min")
-                        .font(.system(size: 11)).foregroundStyle(theme.muted)
-                }
-                Spacer(minLength: 0)
-            }.padding(30).frame(maxWidth: .infinity, alignment: .leading).background(theme.wash)
-            HStack(spacing: 12) {
-                Button {
-                    model.perform { try await model.playback.playPlaylist(model.playlist, tracks: model.tracks) }
-                } label: { Label("Play", systemImage: "play.fill").padding(.horizontal, 13).padding(.vertical, 4) }
-                    .buttonStyle(.borderedProminent).foregroundStyle(theme.buttonInk).disabled(model.tracks.isEmpty)
-                Button {
-                    model.perform {
-                        model.playback.shuffle = true
-                        try await model.playback.playPlaylist(model.playlist, tracks: model.tracks)
-                    }
-                } label: { Image(systemName: "shuffle") }.buttonStyle(.borderless).help("Shuffle playlist").disabled(model.tracks.isEmpty)
-                if model.selectedID == "recent", !model.recentTracks.isEmpty {
-                    Button("Clear history") { model.recentTracks = [] }.buttonStyle(.plain).font(.caption).foregroundStyle(theme.muted)
-                }
-                Spacer()
-                Image(systemName: "line.3.horizontal.decrease").foregroundStyle(theme.muted)
-                TextField("Find in playlist", text: filter).textFieldStyle(.plain).frame(width: 155)
-            }.padding(.horizontal, 30).padding(.bottom, 20)
-            Divider().padding(.horizontal, 30)
-            if model.loadingPlaylistID == model.selectedID {
-                ProgressView("Loading songs…").frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if visible.isEmpty {
-                ContentUnavailableView(filter.wrappedValue.isEmpty ? "No songs here yet" : "No matching songs",
-                    systemImage: "music.note", description: Text("Choose another playlist or search your library."))
-            } else {
-                TrackTable(model: model, tracks: visible, selection: selection).id(viewID)
-                    .padding(.horizontal, 18)
+        let rows = workspace.rows()
+        return VStack(alignment: .leading, spacing: 0) {
+            CommandBar(model: model, workspace: workspace, focus: $commandFocused)
+                .padding(.horizontal, 16).padding(.top, 8)
+            Group {
+                if workspace.isSearching { SearchHeader(model: model, workspace: workspace) }
+                else { titleRow(visible: rows.count) }
             }
-            HStack {
-                Text("Double-click to play · Right-click for more")
-                Spacer()
-                Text(model.isLive ? "Connected" : "Sample mode")
-            }.font(.system(size: 10)).foregroundStyle(theme.muted).padding(.horizontal, 30).padding(.vertical, 13)
+            .padding(.horizontal, 18).frame(height: 46)
+            TrackListHeader(workspace: workspace, rowFrame: rowFrame)
+            Divider().padding(.horizontal, 10)
+            ZStack(alignment: .bottom) {
+                if !workspace.isSearching && model.loadingPlaylistID == model.selectedID {
+                    ProgressView("Loading songs…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if rows.isEmpty {
+                    emptyState.frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    TrackList(model: model, workspace: workspace, rows: rows).id(workspace.listKey)
+                }
+                if workspace.selection.count > 1 {
+                    SelectionBar(model: model, workspace: workspace).padding(.bottom, 14)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.easeOut(duration: 0.15), value: workspace.selection.count > 1)
+        }
+        .onPreferenceChange(RowFrameKey.self) { frame in if let frame, frame != rowFrame { rowFrame = frame } }
+    }
+
+    private func titleRow(visible: Int) -> some View {
+        let total = model.tracks.count
+        let minutes = Int(model.tracks.reduce(0) { $0 + $1.duration } / 60)
+        let filtering = !(workspace.filters[workspace.playlistKey] ?? "").isEmpty
+        return HStack(spacing: 10) {
+            Text(listTitle).font(.system(size: 17, weight: .semibold)).lineLimit(1)
+                .help(model.playlist?.subtitle ?? "")
+            Text(filtering ? "\(visible) of \(total) songs" : "\(total) songs · \(durationText(minutes))")
+                .font(.system(size: 12)).foregroundStyle(theme.muted).monospacedDigit().lineLimit(1)
+            if model.selectedID == "favorites" && model.isLive && !model.usesMusicApp {
+                Text("This session only").font(.system(size: 12)).foregroundStyle(theme.muted)
+                    .help("Favorite requests accepted in this session. Account favorites are not imported yet.")
+            }
+            Spacer(minLength: 8)
+            if model.selectedID == "recent", !model.recentTracks.isEmpty {
+                Button("Clear history") { model.recentTracks = [] }.buttonStyle(.borderless).font(.system(size: 12))
+            }
+            Button { workspace.playPlaylist(shuffled: true) } label: { Label("Shuffle", systemImage: "shuffle") }
+                .help("Shuffle playlist (⇧⌘↩)").disabled(model.tracks.isEmpty)
+            Button { workspace.playPlaylist(shuffled: false) } label: { Label("Play", systemImage: "play.fill") }
+                .buttonStyle(AccentButtonStyle())
+                .help("Play playlist (⌘↩)").disabled(model.tracks.isEmpty)
+        }
+        .controlSize(.regular)
+    }
+
+    private func durationText(_ minutes: Int) -> String {
+        minutes >= 60 ? "\(minutes / 60) hr \(minutes % 60) min" : "\(minutes) min"
+    }
+
+    @ViewBuilder private var emptyState: some View {
+        if workspace.isSearching {
+            if workspace.libraryQuery.isEmpty {
+                ContentUnavailableView("Search your music", systemImage: "magnifyingglass",
+                    description: Text("Type a song, artist, or album. ↑ ↓ to move, Return to play, Esc to go back."))
+            } else if model.searching {
+                ProgressView()
+            } else {
+                ContentUnavailableView.search(text: workspace.libraryQuery)
+            }
+        } else if !(workspace.filters[workspace.playlistKey] ?? "").isEmpty {
+            ContentUnavailableView {
+                Label("Nothing in \(listTitle) matches", systemImage: "line.3.horizontal.decrease")
+            } description: {
+                Text("Press Tab to search your whole library instead.")
+            } actions: {
+                Button("Search library") { workspace.focusCommandBar(scope: .library) }
+            }
+        } else {
+            ContentUnavailableView(model.selectedID == "recent" ? "Nothing played yet" : "No songs here yet", systemImage: "music.note",
+                description: Text("Pick a playlist on the left, or press ⇧⌘K to search your library."))
         }
     }
+
+    #if DEBUG
+    /// Values use `--name=value`: a bare value argument is treated by AppKit as a file to open,
+    /// which suppresses the main window.
+    private func argument(_ name: String) -> String? {
+        ProcessInfo.processInfo.arguments.first { $0.hasPrefix(name + "=") }.map { String($0.dropFirst(name.count + 1)) }
+    }
+    private func applyDebugWindowSize(_ window: NSWindow) {
+        guard let size = argument("--window-size")?.split(separator: "x").compactMap({ Double($0) }), size.count == 2 else { return }
+        var frame = window.frame
+        frame.size = CGSize(width: size[0], height: size[1])
+        window.setFrame(frame, display: true)
+        window.center()
+    }
+    private func applyDebugSelection() {
+        if let id = argument("--select") { model.selectedID = id }
+        workspace.debugMusicAppLayout = ProcessInfo.processInfo.arguments.contains("--layout-music-app")
+        if ProcessInfo.processInfo.arguments.contains("--hide-queue") { workspace.showQueue = false }
+        else if ProcessInfo.processInfo.arguments.contains("--show-queue") { workspace.showQueue = true }
+    }
+    /// Screenshot helpers: --demo-playing, --select-rows 2,3,5, --hover-row N, --query text, --scope library, --show-shortcuts.
+    private func applyDebugState() async {
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("--demo-playing") {
+            try? await model.playback.play(model.tracks, at: 1)
+            model.playback.seek(83)
+        }
+        if let rows = argument("--select-rows") {
+            let numbers = Set(rows.split(separator: ",").compactMap { Int($0) })
+            workspace.selection = Set(workspace.rows().filter { numbers.contains($0.number) }.map(\.id))
+        }
+        if let hover = argument("--hover-row") { workspace.debugHoverRow = Int(hover) }
+        if let scope = argument("--scope").flatMap(SearchScope.init(rawValue:)) { workspace.setScope(scope) }
+        if let query = argument("--query") {
+            workspace.queryText = query
+            try? await Task.sleep(for: .milliseconds(300))
+            workspace.focusCommandBar()
+            workspace.caretToEndOnFocus = true
+            workspace.placeCaretAtEndIfNeeded()
+            if let row = argument("--result-row").flatMap(Int.init) {
+                try? await Task.sleep(for: .milliseconds(700))
+                for _ in 0..<row { workspace.moveSelection(1) }
+            }
+        }
+        if let sidebar = argument("--sidebar-filter") { workspace.sidebarFilter = sidebar }
+        if args.contains("--show-shortcuts") { workspace.showShortcuts = true }
+        if args.contains("--hold-command") { workspace.commandHeld = true }
+    }
+    #endif
 }
+
+// MARK: - Sidebar
+
+struct Sidebar: View {
+    @Environment(\.playerTheme) private var theme
+    @Environment(\.openSettings) private var openSettings
+    @ObservedObject var model: AppModel
+    @ObservedObject var workspace: Workspace
+    @FocusState private var filterFocused: Bool
+
+    private var matches: (MusicPlaylist) -> Bool {
+        let filter = workspace.sidebarFilter
+        return { filter.isEmpty || $0.name.localizedStandardContains(filter) }
+    }
+
+    var body: some View {
+        let pinned = workspace.pinnedPlaylists
+        let others = model.sortedPlaylists.filter { !model.pinned.contains($0.id) && matches($0) }
+        VStack(alignment: .leading, spacing: 0) {
+            Color.clear.frame(height: 44)
+            VStack(alignment: .leading, spacing: 1) {
+                sectionHeader("Library")
+                row("Recently played", id: "recent", icon: "clock.arrow.circlepath", count: model.recentTracks.count, shortcut: nil)
+                row("Favorites", id: "favorites", icon: "star", count: favoritesCount, shortcut: nil)
+                if !pinned.isEmpty {
+                    sectionHeader("Pinned").padding(.top, 14)
+                    ForEach(Array(pinned.enumerated()), id: \.element.id) { offset, playlist in
+                        if matches(playlist) { playlistRow(playlist, shortcut: offset < 9 ? offset + 1 : nil) }
+                    }
+                }
+                HStack {
+                    sectionHeader("Playlists")
+                    Spacer()
+                    Text("\(model.playlists.filter { !model.pinned.contains($0.id) }.count)").font(.system(size: 11)).foregroundStyle(theme.muted).monospacedDigit()
+                    Button { model.perform { await model.refresh() } } label: { Image(systemName: "arrow.clockwise").font(.system(size: 11, weight: .medium)) }
+                        .buttonStyle(.plain).foregroundStyle(theme.muted).help("Refresh library (⌘R)").accessibilityLabel("Refresh library")
+                }.padding(.top, 14).padding(.trailing, 14)
+                filterField.padding(.horizontal, 10).padding(.top, 4).padding(.bottom, 6)
+            }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 1) {
+                    ForEach(others) { playlistRow($0, shortcut: nil) }
+                    if others.isEmpty && !workspace.sidebarFilter.isEmpty {
+                        Text("No playlists match “\(workspace.sidebarFilter)”").font(.system(size: 12)).foregroundStyle(theme.muted)
+                            .padding(.horizontal, 16).padding(.vertical, 8)
+                    }
+                }.padding(.bottom, 8)
+            }
+            Divider()
+            footer
+        }
+        .background(theme.surface.opacity(theme.isDark ? 0.7 : 0.55))
+        .onChange(of: workspace.sidebarFilterRequest) { _, _ in filterFocused = true }
+        .onChange(of: filterFocused) { _, focused in workspace.sidebarFilterFocused = focused }
+    }
+
+    private var favoritesCount: Int? {
+        if !model.isLive { return model.favorites.count }
+        return model.usesMusicApp && !model.favoriteTracks.isEmpty ? model.favoriteTracks.count : nil
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title).font(.system(size: 11, weight: .semibold)).foregroundStyle(theme.muted)
+            .padding(.horizontal, 16).padding(.bottom, 3)
+    }
+
+    private var filterField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass").font(.system(size: 11, weight: .medium)).foregroundStyle(theme.muted)
+            TextField("Filter playlists", text: $workspace.sidebarFilter)
+                .textFieldStyle(.plain).font(.system(size: 12)).focused($filterFocused)
+                .onSubmit {
+                    if let first = model.sortedPlaylists.first(where: matches) { workspace.select(first.id) }
+                }
+            if workspace.sidebarFilter.isEmpty {
+                if !filterFocused { Text("⌥⌘F").font(.system(size: 10, weight: .medium, design: .rounded)).foregroundStyle(theme.muted.opacity(0.8)) }
+            } else {
+                Button { workspace.sidebarFilter = "" } label: { Image(systemName: "xmark.circle.fill").font(.system(size: 11)) }
+                    .buttonStyle(.plain).foregroundStyle(theme.muted).accessibilityLabel("Clear playlist filter")
+            }
+        }
+        .padding(.horizontal, 8).frame(height: 26)
+        .background(theme.background.opacity(theme.isDark ? 0.6 : 0.8), in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(filterFocused ? theme.accent.opacity(0.7) : theme.text.opacity(0.14)))
+    }
+
+    private func count(for playlist: MusicPlaylist) -> Int? {
+        if let loaded = model.loadedTracks[playlist.id] { return loaded.count }
+        return playlist.tracks.isEmpty ? nil : playlist.tracks.count
+    }
+
+    private func playlistRow(_ playlist: MusicPlaylist, shortcut: Int?) -> some View {
+        row(playlist.name, id: playlist.id, icon: "music.note.list", artwork: playlist.artwork, count: count(for: playlist), shortcut: shortcut)
+            .contextMenu {
+                Button("Play") { Task { await model.select(playlist.id); workspace.playPlaylist(shuffled: false) } }
+                Button("Shuffle") { Task { await model.select(playlist.id); workspace.playPlaylist(shuffled: true) } }
+                Divider()
+                Button(model.pinned.contains(playlist.id) ? "Unpin" : "Pin to top") { model.pin(playlist) }
+            }
+    }
+
+    private func row(_ title: String, id: String, icon: String, artwork: URL? = nil, count: Int?, shortcut: Int?) -> some View {
+        SidebarRow(title: title, icon: icon, artwork: artwork, count: count, shortcut: shortcut,
+                   selected: model.selectedID == id && !workspace.isSearching, showShortcut: workspace.commandHeld) {
+            workspace.select(id)
+        }
+    }
+
+    private var footer: some View {
+        HStack(spacing: 8) {
+            Circle().fill(model.isLive ? theme.accent : Color.orange).frame(width: 7, height: 7)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(model.usesMusicApp ? "Music.app" : model.isLive ? "Apple Music" : "Sample library").font(.system(size: 12, weight: .medium))
+                Text(model.isLive ? "Connected" : "Simulated, no audio").font(.system(size: 11)).foregroundStyle(theme.muted)
+            }
+            Spacer()
+            Button { openSettings() } label: {
+                Image(systemName: "gearshape").font(.system(size: 13)).frame(width: 26, height: 26).contentShape(Rectangle())
+            }.buttonStyle(.plain).foregroundStyle(theme.muted).help("Settings (⌘,)").accessibilityLabel("Settings")
+        }.padding(.horizontal, 14).padding(.vertical, 10)
+    }
+}
+
+struct SidebarRow: View {
+    @Environment(\.playerTheme) private var theme
+    var title: String
+    var icon: String
+    var artwork: URL?
+    var count: Int?
+    var shortcut: Int?
+    var selected: Bool
+    var showShortcut: Bool
+    var action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                if artwork != nil || icon == "music.note.list" {
+                    Artwork(url: artwork, seed: title, size: 20, cornerRadius: 4)
+                } else {
+                    Image(systemName: icon).font(.system(size: 12, weight: .medium)).frame(width: 20)
+                        .foregroundStyle(selected ? theme.accent : theme.muted)
+                }
+                Text(title).font(.system(size: 13, weight: selected ? .medium : .regular)).lineLimit(1)
+                Spacer(minLength: 4)
+                if let shortcut, showShortcut {
+                    KeyCap("⌘\(shortcut)")
+                } else if let count {
+                    Text("\(count)").font(.system(size: 11)).monospacedDigit().foregroundStyle(theme.muted)
+                }
+            }
+            .padding(.horizontal, 8).frame(height: 28)
+            .background(selected ? theme.accent.opacity(0.16) : hovering ? theme.text.opacity(0.05) : .clear, in: RoundedRectangle(cornerRadius: 6))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).padding(.horizontal, 8)
+        .onHover { hovering = $0 }
+        .help(shortcut.map { "\(title) (⌘\($0))" } ?? title)
+    }
+}
+
+// MARK: - Artwork
 
 struct Artwork: View {
     @Environment(\.playerTheme) private var theme
     var url: URL?
     var seed: String
     var size: CGFloat
+    var cornerRadius: CGFloat = 8
     @State private var localImage: NSImage?
     private var hue: Double { Double(seed.utf8.reduce(0) { $0 + Int($1) } % 100) / 100 }
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 8).fill(Color(hue: hue, saturation: 0.27, brightness: 0.32).gradient)
+            RoundedRectangle(cornerRadius: cornerRadius).fill(Color(hue: hue, saturation: 0.27, brightness: 0.32).gradient)
             GeometryReader { proxy in
                 ZStack {
                     ForEach(0..<7) { index in
@@ -219,80 +428,13 @@ struct Artwork: View {
             } else if let url {
                 AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
             }
-        }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: 8)).accessibilityHidden(true)
+        }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: cornerRadius)).accessibilityHidden(true)
         .task(id: url) {
             localImage = nil
             guard let url, url.scheme == "music-artwork" else { return }
             let data = await MusicArtworkLoader.shared.thumbnail(for: url, pixels: size > 48 ? 320 : 96)
             guard !Task.isCancelled else { return }
             localImage = data.flatMap { NSImage(data: $0) }
-        }
-    }
-}
-
-struct DisplayTrack: Identifiable {
-    var id: String
-    var track: LibraryTrack
-    var title: String { track.title }
-    var artist: String { track.artist }
-    var album: String { track.album }
-    var duration: Double { track.duration }
-}
-
-struct TrackTable: View {
-    @Environment(\.playerTheme) private var theme
-    @ObservedObject var model: AppModel
-    var tracks: [LibraryTrack]
-    @Binding var selection: Set<String>
-    @State private var sortOrder = [KeyPathComparator<DisplayTrack>]()
-    private var rows: [DisplayTrack] {
-        tracks.enumerated().map { DisplayTrack(id: "\($0.offset):\($0.element.id)", track: $0.element) }.sorted(using: sortOrder)
-    }
-    private func selected(_ ids: Set<String>) -> [LibraryTrack] { rows.filter { ids.contains($0.id) }.map(\.track) }
-    var body: some View {
-        Table(rows, selection: $selection, sortOrder: $sortOrder) {
-            TableColumn("Title", value: \.title) { row in
-                HStack(spacing: 10) {
-                    Artwork(url: row.track.artwork, seed: row.album, size: 31)
-                    if model.playback.current?.id == row.track.id {
-                        Image(systemName: model.playback.isPlaying ? "waveform" : "pause.fill").foregroundStyle(theme.accent).font(.caption).accessibilityLabel("Current song")
-                    }
-                    Text(row.title).font(.system(size: 12, weight: .medium)).lineLimit(1)
-                }.padding(.vertical, 5)
-            }.width(min: 165, ideal: 230)
-            TableColumn("Artist", value: \.artist) { Text($0.artist).font(.system(size: 11)).foregroundStyle(theme.muted) }.width(min: 90, ideal: 140)
-            TableColumn("Album", value: \.album) { Text($0.album).font(.system(size: 11)).foregroundStyle(theme.muted) }.width(min: 80, ideal: 140)
-            TableColumn("", value: \.duration) { row in
-                HStack {
-                    if model.favorites.contains(row.track.id) { Image(systemName: "star.fill").foregroundStyle(theme.accent) }
-                    Spacer()
-                    Text(clockText(row.duration)).monospacedDigit().foregroundStyle(theme.muted)
-                }.font(.system(size: 10))
-            }.width(65)
-        }
-        .tableStyle(.inset(alternatesRowBackgrounds: false))
-        .scrollContentBackground(.hidden)
-        .contextMenu(forSelectionType: String.self) { ids in
-            let chosen = selected(ids)
-            if !chosen.isEmpty {
-                if model.playback.canEditQueue {
-                    Button("Play next") { model.perform { try await model.playback.enqueue(chosen, next: true) } }
-                    Button("Add to queue") { model.perform { try await model.playback.enqueue(chosen, next: false) } }
-                }
-                if let track = chosen.first, chosen.count == 1 {
-                    Button(model.favorites.contains(track.id) && (!model.isLive || model.usesMusicApp) ? "Remove from favorites" : "Favorite song") {
-                        model.perform { try await model.favorite(track) }
-                    }
-                }
-                Menu("Add to playlist") {
-                    ForEach(model.playlists.filter(\.canAddTracks)) { playlist in
-                        Button(playlist.name) { model.perform { try await model.add(chosen, to: playlist) } }
-                    }
-                }
-            }
-        } primaryAction: { ids in
-            guard let first = rows.firstIndex(where: { ids.contains($0.id) }) else { return }
-            model.perform { try await model.playback.play(rows.map(\.track), at: first) }
         }
     }
 }
